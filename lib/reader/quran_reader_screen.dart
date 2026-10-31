@@ -1286,43 +1286,21 @@ class _QuranReaderScreenState extends State<QuranReaderScreen>
                   left: 0,
                   right: 0,
                   bottom: 0,
-                  child: ValueListenableBuilder<bool>(
-                    valueListenable: _bottomBarVisible,
-                    builder: (context, visible, child) {
-                      return IgnorePointer(
-                        ignoring: !visible,
-                        child: ClipRect(
-                          child: AnimatedSlide(
-                            duration: visible
-                                ? AppDimens.bottomBarShow
-                                : AppDimens.bottomBarHide,
-                            curve: visible
-                                ? AppDimens.bottomBarShowCurve
-                                : AppDimens.bottomBarHideCurve,
-                            offset: visible
-                                ? Offset.zero
-                                : const Offset(0, 1),
-                            child: child,
-                          ),
-                        ),
-                      );
-                    },
-                    child: ListenableBuilder(
-                      listenable: Listenable.merge([
-                        widget.settings,
-                        _audio,
-                      ]),
-                      builder: (context, _) => _ReaderBottomBar(
-                        onTilawatOrderPressed: _openTilawatOrder,
-                        ayahRepeatMode: widget.settings.ayahRepeatMode,
-                        onRepeatPressed: _cycleAyahRepeatMode,
-                        ayahRepeatPulse: _audio.repeatPulse,
-                        audioPlaying: _audio.playing,
-                        audioLoading: _audio.loading,
-                        onPlayPressed: _onBottomPlayPressed,
-                        onPreviousPressed: _onBottomSkipPrevious,
-                        onNextPressed: _onBottomSkipNext,
-                      ),
+                  child: ListenableBuilder(
+                    listenable: Listenable.merge([
+                      widget.settings,
+                      _audio,
+                    ]),
+                    builder: (context, _) => _ReaderBottomBar(
+                      onTilawatOrderPressed: _openTilawatOrder,
+                      ayahRepeatMode: widget.settings.ayahRepeatMode,
+                      onRepeatPressed: _cycleAyahRepeatMode,
+                      ayahRepeatPulse: _audio.repeatPulse,
+                      audioPlaying: _audio.playing,
+                      audioLoading: _audio.loading,
+                      onPlayPressed: _onBottomPlayPressed,
+                      onPreviousPressed: _onBottomSkipPrevious,
+                      onNextPressed: _onBottomSkipNext,
                     ),
                   ),
                 ),
@@ -1333,14 +1311,13 @@ class _QuranReaderScreenState extends State<QuranReaderScreen>
     );
   }
 
-  /// Scroll down (ayahs move up) hides the overlay bar. It returns at rest.
+  /// Tracks scroll direction for ahead-of-viewport shaping. Transport stays put.
   void _onMushafScrollDelta(double delta) {
     if (_isSnapping || _isRestoringOrientation) return;
     widget.controller.setScrollActive(true);
     PreparedLineCache.deferMisses = true;
     if (delta > 2.5) {
       _scrollForward = true;
-      if (_bottomBarVisible.value) _bottomBarVisible.value = false;
     } else if (delta < -2.5) {
       _scrollForward = false;
     }
@@ -1402,7 +1379,6 @@ class _QuranReaderScreenState extends State<QuranReaderScreen>
     PreparedLineCache.deferMisses = false;
     widget.controller.setScrollActive(false);
     widget.controller.flushPositionSave();
-    if (!_bottomBarVisible.value) _bottomBarVisible.value = true;
     _snapVisibleSurahHeader();
   }
 }
