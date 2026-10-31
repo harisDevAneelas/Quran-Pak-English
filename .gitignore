@@ -1,0 +1,83 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# IntelliJ / Android Studio
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# VS Code — keep shared launch/tasks if you add them later
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/tasks.json
+
+# Cursor local
+.cursor/
+
+# Flutter / Dart / Pub
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+coverage/
+.widget_preview/
+
+# Symbolication / obfuscation outputs
+app.*.symbols
+app.*.map.json
+
+# Android Studio per-variant output folders under app/
+/android/app/debug/
+/android/app/profile/
+/android/app/release/
+
+/test/
+/specs/
+
+# Secrets & machine-local Android SDK paths (never commit)
+**/local.properties
+**/key.properties
+**/*.keystore
+**/*.jks
+**/*.p8
+**/*.p12
+**/*.mobileprovision
+.env
+.env.*
+!.env.example
+
+# FVM (if used)
+.fvm/flutter_sdk
+
+# Large runtime DB — keep locally under assets/data/; do not push to GitHub.
+# Clone/build: copy database.sqlite into assets/data/ before flutter run.
+assets/data/database.sqlite
+
+# ------------------------------------------------------------
+# KEEP tracked (needed to clone and build, aside from the sqlite above):
+#   pubspec.yaml, pubspec.lock
+#   lib/, test/, docs/, specs/, tool/, tools/
+#   assets/**  (fonts, splash, flags, reciters, quran JSON/metadata)
+#   third_party/arabic_text_justification/ source + jniLibs + wasm
+#   android/ios/web/macos/linux/windows project files
+#   android/gradlew, android/gradlew.bat, gradle wrapper jar/properties
+# ------------------------------------------------------------

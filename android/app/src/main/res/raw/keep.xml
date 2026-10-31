@@ -1,0 +1,3 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@mipmap/ic_launcher,@mipmap/ic_launcher_*,@drawable/*,@drawable/ic_stat_notify,@raw/mishary_rashid_alafasy,@raw/muhammad_ramadan_saad,@raw/ali_ibn_ahmad_mala" />

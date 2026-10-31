@@ -1,0 +1,181 @@
+{
+  "counts": {
+    "manzil": 7,
+    "sajda": 15
+  },
+  "manzil": [
+    {
+      "manzil": 1,
+      "start": "1:1",
+      "end": "4:176"
+    },
+    {
+      "manzil": 2,
+      "start": "5:1",
+      "end": "9:129"
+    },
+    {
+      "manzil": 3,
+      "start": "10:1",
+      "end": "16:128"
+    },
+    {
+      "manzil": 4,
+      "start": "17:1",
+      "end": "25:77"
+    },
+    {
+      "manzil": 5,
+      "start": "26:1",
+      "end": "36:83"
+    },
+    {
+      "manzil": 6,
+      "start": "37:1",
+      "end": "49:18"
+    },
+    {
+      "manzil": 7,
+      "start": "50:1",
+      "end": "114:6"
+    }
+  ],
+  "sajda": [
+    {
+      "sajda": 1,
+      "start": "7:206",
+      "surah": 7,
+      "ayah": 206,
+      "recommended": true,
+      "obligatory": false
+    },
+    {
+      "sajda": 2,
+      "start": "13:15",
+      "surah": 13,
+      "ayah": 15,
+      "recommended": true,
+      "obligatory": false
+    },
+    {
+      "sajda": 3,
+      "start": "16:50",
+      "surah": 16,
+      "ayah": 50,
+      "recommended": true,
+      "obligatory": false
+    },
+    {
+      "sajda": 4,
+      "start": "17:109",
+      "surah": 17,
+      "ayah": 109,
+      "recommended": true,
+      "obligatory": false
+    },
+    {
+      "sajda": 5,
+      "start": "19:58",
+      "surah": 19,
+      "ayah": 58,
+      "recommended": true,
+      "obligatory": false
+    },
+    {
+      "sajda": 6,
+      "start": "22:18",
+      "surah": 22,
+      "ayah": 18,
+      "recommended": true,
+      "obligatory": false
+    },
+    {
+      "sajda": 7,
+      "start": "22:77",
+      "surah": 22,
+      "ayah": 77,
+      "recommended": true,
+      "obligatory": false
+    },
+    {
+      "sajda": 8,
+      "start": "25:60",
+      "surah": 25,
+      "ayah": 60,
+      "recommended": true,
+      "obligatory": false
+    },
+    {
+      "sajda": 9,
+      "start": "27:26",
+      "surah": 27,
+      "ayah": 26,
+      "recommended": true,
+      "obligatory": false
+    },
+    {
+      "sajda": 10,
+      "start": "32:15",
+      "surah": 32,
+      "ayah": 15,
+      "recommended": false,
+      "obligatory": true
+    },
+    {
+      "sajda": 11,
+      "start": "38:24",
+      "surah": 38,
+      "ayah": 24,
+      "recommended": true,
+      "obligatory": false
+    },
+    {
+      "sajda": 12,
+      "start": "41:38",
+      "surah": 41,
+      "ayah": 38,
+      "recommended": false,
+      "obligatory": true
+    },
+    {
+      "sajda": 13,
+      "start": "53:62",
+      "surah": 53,
+      "ayah": 62,
+      "recommended": false,
+      "obligatory": true
+    },
+    {
+      "sajda": 14,
+      "start": "84:21",
+      "surah": 84,
+      "ayah": 21,
+      "recommended": true,
+      "obligatory": false
+    },
+    {
+      "sajda": 15,
+      "start": "96:19",
+      "surah": 96,
+      "ayah": 19,
+      "recommended": false,
+      "obligatory": true
+    }
+  ],
+  "bismillah": {
+    "words": [
+      {
+        "text": "بِسْمِ"
+      },
+      {
+        "text": "اللّٰهِ"
+      },
+      {
+        "text": "الرَّحْمٰنِ"
+      },
+      {
+        "text": "الرَّحِيْمِ"
+      }
+    ]
+  }
+}

@@ -1,0 +1,16 @@
+/.gradle/
+/captures/
+/local.properties
+GeneratedPluginRegistrant.java
+.cxx/
+.kotlin/
+
+# Signing secrets — never commit
+key.properties
+**/*.keystore
+**/*.jks
+
+# Keep these tracked so `./gradlew` works after clone:
+#   gradlew, gradlew.bat
+#   gradle/wrapper/gradle-wrapper.jar
+#   gradle/wrapper/gradle-wrapper.properties
