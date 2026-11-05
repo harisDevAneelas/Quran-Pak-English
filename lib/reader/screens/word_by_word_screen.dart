@@ -9,6 +9,7 @@ import '../../data/quran_metadata.dart';
 import '../../data/quran_repository.dart';
 import '../../data/word_by_word_repository.dart';
 import '../reader_settings.dart';
+import '../widgets/mushaf_pinch_zoom.dart';
 import '../widgets/reader_page_scaffold.dart';
 import '../widgets/surah_ayah_picker_sheet.dart';
 import '../widgets/surah_header_banner.dart';
@@ -53,6 +54,10 @@ class _WordByWordScreenState extends State<WordByWordScreen> {
   late int _visibleSurah;
   late int _visibleAyah;
 
+  final GlobalKey _pinchKey = GlobalKey();
+  int? _pinchAnchorIndex;
+  double? _pinchAnchorAlignment;
+
   @override
   void initState() {
     super.initState();
@@ -79,6 +84,65 @@ class _WordByWordScreenState extends State<WordByWordScreen> {
   void _onSettingsChanged() {
     // Font size only affects layout metrics; keep pair cache.
     if (mounted) setState(() {});
+  }
+
+  void _onPinchStarted(Offset localFocal) {
+    final box = _pinchKey.currentContext?.findRenderObject() as RenderBox?;
+    final height = box?.size.height ?? 1.0;
+    final frac = (localFocal.dy / height).clamp(0.0, 1.0);
+    final positions = _itemPositionsListener.itemPositions.value;
+
+    ItemPosition? hit;
+    for (final position in positions) {
+      if (position.itemLeadingEdge <= frac &&
+          position.itemTrailingEdge > frac) {
+        hit = position;
+        break;
+      }
+    }
+    hit ??= _topVisibleItemPosition(positions);
+
+    if (hit == null) {
+      _pinchAnchorIndex = null;
+      _pinchAnchorAlignment = null;
+      return;
+    }
+    _pinchAnchorIndex = hit.index;
+    _pinchAnchorAlignment = hit.itemLeadingEdge.clamp(0.0, 0.9);
+  }
+
+  ItemPosition? _topVisibleItemPosition(Iterable<ItemPosition> positions) {
+    ItemPosition? top;
+    for (final position in positions) {
+      if (position.itemTrailingEdge <= 0) continue;
+      if (position.itemLeadingEdge >= 1) continue;
+      if (top == null || position.itemLeadingEdge < top.itemLeadingEdge) {
+        top = position;
+      }
+    }
+    return top;
+  }
+
+  void _onPinchFontSize(double size) {
+    widget.settings.setFontSize(size);
+    _restorePinchAnchor();
+  }
+
+  void _onPinchEnded() {
+    _restorePinchAnchor();
+    _pinchAnchorIndex = null;
+    _pinchAnchorAlignment = null;
+  }
+
+  void _restorePinchAnchor() {
+    final index = _pinchAnchorIndex;
+    final alignment = _pinchAnchorAlignment;
+    if (index == null || alignment == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_itemScrollController.isAttached) return;
+      if (index < 0 || index >= MushafLayout.itemCount) return;
+      _itemScrollController.jumpTo(index: index, alignment: alignment);
+    });
   }
 
   void _onItemPositionsChanged() {
@@ -306,40 +370,55 @@ class _WordByWordScreenState extends State<WordByWordScreen> {
 
             return Directionality(
               textDirection: TextDirection.ltr,
-              child: ScrollConfiguration(
-                behavior: ScrollConfiguration.of(
-                  context,
-                ).copyWith(scrollbars: false),
-                child: ScrollablePositionedList.builder(
-                  itemScrollController: _itemScrollController,
-                  itemPositionsListener: _itemPositionsListener,
-                  initialScrollIndex: _initialScrollIndex.clamp(
-                    0,
-                    MushafLayout.itemCount - 1,
-                  ),
-                  itemCount: MushafLayout.itemCount,
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
-                  // Prefetch more off-screen rows so fling stays smooth.
-                  minCacheExtent: 1200,
-                  addAutomaticKeepAlives: false,
-                  itemBuilder: (context, index) {
-                    _prefetchAround(index);
-                    final slot = MushafLayout.slotAt(index);
-                    return switch (slot) {
-                      MushafHeaderSlot(:final surah) => _SurahHeader(
-                        key: ValueKey('wbw-h-$surah'),
-                        surah: surah,
+              child: MushafPinchZoom(
+                key: _pinchKey,
+                fontSize: fontSize,
+                onPinchStarted: _onPinchStarted,
+                onPinchEnded: _onPinchEnded,
+                onFontSizeChanged: _onPinchFontSize,
+                child: Builder(
+                  builder: (context) {
+                    return ScrollConfiguration(
+                      behavior: ScrollConfiguration.of(
+                        context,
+                      ).copyWith(scrollbars: false),
+                      child: ScrollablePositionedList.builder(
+                        itemScrollController: _itemScrollController,
+                        itemPositionsListener: _itemPositionsListener,
+                        physics: MushafPinchLock.of(context)
+                            ? const NeverScrollableScrollPhysics()
+                            : null,
+                        initialScrollIndex: _initialScrollIndex.clamp(
+                          0,
+                          MushafLayout.itemCount - 1,
+                        ),
+                        itemCount: MushafLayout.itemCount,
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+                        // Prefetch more off-screen rows so fling stays smooth.
+                        minCacheExtent: 1200,
+                        addAutomaticKeepAlives: false,
+                        itemBuilder: (context, index) {
+                          _prefetchAround(index);
+                          final slot = MushafLayout.slotAt(index);
+                          return switch (slot) {
+                            MushafHeaderSlot(:final surah) => _SurahHeader(
+                              key: ValueKey('wbw-h-$surah'),
+                              surah: surah,
+                            ),
+                            MushafAyahSlot(:final surah, :final ayah) =>
+                              _AyahBlock(
+                                key: ValueKey('wbw-a-$surah-$ayah'),
+                                surah: surah,
+                                ayah: ayah,
+                                pairs: _pairsFor(surah, ayah),
+                                fontSize: fontSize,
+                                loadingUrdu: !_loadedSurahs.contains(surah) &&
+                                    _loadingSurahs.contains(surah),
+                              ),
+                          };
+                        },
                       ),
-                      MushafAyahSlot(:final surah, :final ayah) => _AyahBlock(
-                        key: ValueKey('wbw-a-$surah-$ayah'),
-                        surah: surah,
-                        ayah: ayah,
-                        pairs: _pairsFor(surah, ayah),
-                        fontSize: fontSize,
-                        loadingUrdu: !_loadedSurahs.contains(surah) &&
-                            _loadingSurahs.contains(surah),
-                      ),
-                    };
+                    );
                   },
                 ),
               ),

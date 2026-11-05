@@ -48,12 +48,15 @@ String preparedLineCacheKey({
   return '$fontPath|$size|$width|${justify ? 1 : 0}|${words.join('\u0001')}';
 }
 
-/// LRU of shaped lines, filled one line per frame so a fling never runs
+/// LRU of shaped lines, filled a few lines per frame so a fling never runs
 /// HarfBuzz inside the scroll build.
 class PreparedLineCache {
   PreparedLineCache._();
 
-  static const int maxEntries = 480;
+  static const int maxEntries = 1200;
+
+  /// How many HarfBuzz lines to prepare each frame while the queue is hot.
+  static const int linesPerFrame = 6;
 
   /// When true, a cache miss must not shape during build.
   static bool deferMisses = false;
@@ -115,8 +118,12 @@ class PreparedLineCache {
     _scheduled = true;
     SchedulerBinding.instance.scheduleFrameCallback((_) {
       _scheduled = false;
-      if (_urgent.isEmpty && _ahead.isEmpty) return;
-      _pumpOne();
+      var shaped = 0;
+      while (shaped < linesPerFrame &&
+          (_urgent.isNotEmpty || _ahead.isNotEmpty)) {
+        _pumpOne();
+        shaped++;
+      }
       if (_urgent.isNotEmpty || _ahead.isNotEmpty) _schedule();
     });
   }

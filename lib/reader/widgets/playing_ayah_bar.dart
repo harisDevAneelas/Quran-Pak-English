@@ -54,10 +54,10 @@ class PlayingAyahBarHost extends StatelessWidget {
 
         final safeBottom = MediaQuery.paddingOf(context).bottom;
         final gap = AppDimens.scaled(context, AppDimens.playingAyahBarGap);
+        final transportShown =
+            transportVisible == null || transportVisible!.value;
         final chrome = chromeHeight?.value ??
-            ((transportVisible?.value == true && transportHeight > 0)
-                ? transportHeight
-                : 0.0);
+            ((transportShown && transportHeight > 0) ? transportHeight : 0.0);
         final lift = playingAyahBarLift(
           safeBottom: safeBottom,
           gap: gap,

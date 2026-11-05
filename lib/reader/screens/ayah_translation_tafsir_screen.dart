@@ -7,6 +7,7 @@ import '../../data/quran_repository.dart';
 import '../../data/translation_catalog.dart';
 import '../../data/translation_repository.dart';
 import '../reader_settings.dart';
+import '../widgets/mushaf_pinch_zoom.dart';
 import '../widgets/quran_ayah_widget.dart';
 import '../widgets/reader_page_scaffold.dart';
 
@@ -31,15 +32,53 @@ class AyahTranslationTafsirScreen extends StatefulWidget {
 class _AyahTranslationTafsirScreenState
     extends State<AyahTranslationTafsirScreen> {
   final _translations = TranslationRepository();
+  final ScrollController _scroll = ScrollController();
   QuranAyahChunk? _chunk;
   Map<String, String> _texts = const {};
   bool _loading = true;
   String? _error;
+  double? _pinchScrollFrac;
 
   @override
   void initState() {
     super.initState();
     _load();
+  }
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  void _onPinchStarted(Offset _) {
+    if (!_scroll.hasClients) {
+      _pinchScrollFrac = null;
+      return;
+    }
+    final pos = _scroll.position;
+    final max = pos.maxScrollExtent;
+    _pinchScrollFrac = max <= 0 ? 0.0 : (pos.pixels / max).clamp(0.0, 1.0);
+  }
+
+  void _onPinchFontSize(double size) {
+    widget.settings.setFontSize(size);
+    _restoreScrollFraction();
+  }
+
+  void _onPinchEnded() {
+    _restoreScrollFraction();
+    _pinchScrollFrac = null;
+  }
+
+  void _restoreScrollFraction() {
+    final frac = _pinchScrollFrac;
+    if (frac == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scroll.hasClients) return;
+      final max = _scroll.position.maxScrollExtent;
+      _scroll.jumpTo((frac * max).clamp(0.0, max));
+    });
   }
 
   Future<void> _load() async {
@@ -104,49 +143,69 @@ class _AyahTranslationTafsirScreenState
               builder: (context, _) {
                 return Directionality(
                   textDirection: TextDirection.ltr,
-                  child: ListView(
-                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
-                    children: [
-                      Text(
-                        heading,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
-                          color: AppTheme.orange,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      if (_chunk != null)
-                        QuranAyahWidget(
-                          ayah: _chunk!,
-                          fontSize: widget.settings.fontSize,
-                          tajweedEnabled: widget.settings.tajweedEnabled,
-                          inkColor: ink,
-                        ),
-                      const SizedBox(height: 20),
-                      _SectionTitle(label: 'Translations'),
-                      const SizedBox(height: 8),
-                      for (final option in translations)
-                        _TextCard(
-                          title: option.label,
-                          text: _texts[option.id]!,
-                          ltr: TranslationCatalog.isLtr(option.id),
-                        ),
-                      if (translations.isEmpty)
-                        const _EmptyNote(text: 'No translation is available for this ayah'),
-                      const SizedBox(height: 20),
-                      _SectionTitle(label: 'Tafsir'),
-                      const SizedBox(height: 8),
-                      for (final option in tafsirs)
-                        _TextCard(
-                          title: option.label,
-                          text: _texts[option.id]!,
-                          ltr: TranslationCatalog.isLtr(option.id),
-                        ),
-                      if (tafsirs.isEmpty)
-                        const _EmptyNote(text: 'Tafsir for this ayah is not available yet'),
-                    ],
+                  child: MushafPinchZoom(
+                    fontSize: widget.settings.fontSize,
+                    onPinchStarted: _onPinchStarted,
+                    onPinchEnded: _onPinchEnded,
+                    onFontSizeChanged: _onPinchFontSize,
+                    child: Builder(
+                      builder: (context) {
+                        return ListView(
+                          controller: _scroll,
+                          physics: MushafPinchLock.of(context)
+                              ? const NeverScrollableScrollPhysics()
+                              : null,
+                          padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+                          children: [
+                            Text(
+                              heading,
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
+                                color: AppTheme.orange,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            if (_chunk != null)
+                              QuranAyahWidget(
+                                ayah: _chunk!,
+                                fontSize: widget.settings.fontSize,
+                                tajweedEnabled: widget.settings.tajweedEnabled,
+                                inkColor: ink,
+                              ),
+                            const SizedBox(height: 20),
+                            _SectionTitle(label: 'Translations'),
+                            const SizedBox(height: 8),
+                            for (final option in translations)
+                              _TextCard(
+                                title: option.label,
+                                text: _texts[option.id]!,
+                                ltr: TranslationCatalog.isLtr(option.id),
+                              ),
+                            if (translations.isEmpty)
+                              const _EmptyNote(
+                                text:
+                                    'No translation is available for this ayah',
+                              ),
+                            const SizedBox(height: 20),
+                            _SectionTitle(label: 'Tafsir'),
+                            const SizedBox(height: 8),
+                            for (final option in tafsirs)
+                              _TextCard(
+                                title: option.label,
+                                text: _texts[option.id]!,
+                                ltr: TranslationCatalog.isLtr(option.id),
+                              ),
+                            if (tafsirs.isEmpty)
+                              const _EmptyNote(
+                                text:
+                                    'Tafsir for this ayah is not available yet',
+                              ),
+                          ],
+                        );
+                      },
+                    ),
                   ),
                 );
               },

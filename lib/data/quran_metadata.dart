@@ -67,7 +67,7 @@ class QuranMetadata {
   Future<QuranMetadata> _withDatabaseDivisions() async {
     final db = await QuranDatabase.instance;
     final surahRows = await db.rawQuery(
-      'SELECT SuraNum, SurahOrder, SurahIntro, '
+      'SELECT SuraNum, SurahOrder, SurahIntro, SimpleEngName, '
       'JuzNum, ArabicName, EngName, PageNum, TotalAya '
       'FROM Sura ORDER BY SuraNum',
     );
@@ -160,6 +160,15 @@ class QuranMetadata {
     return cached.surahs[surah - 1];
   }
 
+  /// Safe Juz lookup after [load]; null if not ready / out of range.
+  static JuzMeta? juzOrNull(int juz) {
+    final cached = _cache;
+    if (cached == null || juz < 1 || juz > cached.juz.length) {
+      return null;
+    }
+    return cached.juz[juz - 1];
+  }
+
   /// Safe joined bismillah text after [load]; empty if not ready.
   static String bismillahTextOrEmpty() {
     final words = _cache?.bismillahWords;
@@ -200,6 +209,7 @@ class SurahMeta {
     this.englishName = '',
     this.englishNameTranslation = '',
     this.revelationType = '',
+    this.simpleEngName = '',
     this.arabicNameDb = '',
     this.dbAyahCount,
     this.juzNum,
@@ -214,6 +224,9 @@ class SurahMeta {
   final String englishName;
   final String englishNameTranslation;
   final String revelationType;
+
+  /// Alias bag from `Sura.SimpleEngName` (romanized / English search tokens).
+  final String simpleEngName;
 
   /// Plain Arabic name from the SQLite `Sura` table.
   final String arabicNameDb;
@@ -230,7 +243,7 @@ class SurahMeta {
   /// Revelation order (1–114) parsed from `Sura.SurahOrder`.
   final int? chronologicalOrder;
 
-  /// Urdu introduction from `Sura.SurahIntro`.
+  /// Introduction from `Sura.SurahIntro`.
   final String intro;
 
   /// Arabic name without harakat, for menus and search.
@@ -241,12 +254,21 @@ class SurahMeta {
     return stripped.trim();
   }
 
-  /// Preferred title for lists / drawers (English EngName first).
+  /// Preferred title for lists / grids (English EngName first, no "Surah" prefix).
   String get listTitle {
-    if (englishName.isNotEmpty) return englishName;
+    if (englishName.isNotEmpty) return stripSurahPrefix(englishName);
     if (arabicNameDb.isNotEmpty) return arabicNameDb;
     if (plainNameAr.isNotEmpty) return plainNameAr;
-    return 'Surah $surah';
+    return '$surah';
+  }
+
+  /// `EngName` in english_db is often `Surah Al-Baqarah`; grids show the raw name.
+  static String stripSurahPrefix(String name) {
+    final trimmed = name.trim();
+    final stripped = trimmed
+        .replaceFirst(RegExp(r'^surah\s+', caseSensitive: false), '')
+        .trim();
+    return stripped.isEmpty ? trimmed : stripped;
   }
 
   String get revelationLabel {
@@ -255,6 +277,27 @@ class SurahMeta {
       'Medinan' => 'Medinan',
       _ => revelationType,
     };
+  }
+
+  /// Higher is a closer name match. `0` means no match. Empty query → `100`.
+  int queryScore(String query) {
+    final q = normalizeMetaQuery(query);
+    if (q.isEmpty) return 100;
+    final number = _westernDigits(q);
+    if (number == '$surah') return 100;
+    var best = 0;
+    for (final field in <String>[
+      plainNameAr,
+      listTitle,
+      englishName,
+      englishNameTranslation,
+      simpleEngName,
+      revelationLabel,
+    ]) {
+      final score = metaQueryScore(field, q);
+      if (score > best) best = score;
+    }
+    return best;
   }
 
   /// One `Sura` row. [ayahCount] is the app count (Fatiha is 6).
@@ -270,6 +313,7 @@ class SurahMeta {
       englishName: row['EngName']?.toString() ?? '',
       englishNameTranslation: parsed.translation,
       revelationType: parsed.revelation,
+      simpleEngName: row['SimpleEngName']?.toString() ?? '',
       arabicNameDb: arabic,
       dbAyahCount: (row['TotalAya'] as num?)?.toInt(),
       juzNum: (row['JuzNum'] as num?)?.toInt(),
@@ -367,4 +411,249 @@ class JuzMeta {
     if (nameUr.isNotEmpty) return nameUr;
     return 'Para $juz';
   }
+
+  /// Higher is a closer name match. `0` means no match. Empty query → `100`.
+  int queryScore(String query) {
+    final q = normalizeMetaQuery(query);
+    if (q.isEmpty) return 100;
+    final number = _westernDigits(q);
+    if (number == '$juz') return 100;
+    var best = 0;
+    for (final field in <String>[nameUr, nameAr, nameEn]) {
+      final score = metaQueryScore(field, q);
+      if (score > best) best = score;
+    }
+    return best;
+  }
+}
+
+final RegExp _metaPunctuation = RegExp(r"[ـ\-_'’`.,،؛:!?/\\|]+");
+final RegExp _metaWhitespace = RegExp(r'\s+');
+final RegExp _metaLabelPrefix = RegExp(
+  r'^(surahs?|surat|سورة|سورۃ|سوره|paras?|juz|پارہ|پاره|الجزء|جزء)\s*',
+);
+final RegExp _metaLatinArticle = RegExp(r'^(al|ar|an|as|ad|adh|ath|az|el)-?');
+final RegExp _metaArabicArticle = RegExp(r'^ال');
+final RegExp _metaNonLatin = RegExp(r'[^a-z0-9]');
+final RegExp _metaDoubleLetter = RegExp(r'(.)\1+');
+final RegExp _metaLatinVowels = RegExp(r'[aeiou]');
+
+/// Lowercase Latin + fold Arabic/Urdu letters; strip harakat and labels.
+String normalizeMetaQuery(String input) {
+  var s = _stripArabicDiacritics(input);
+  s = _foldArabicLetters(s);
+  s = _westernDigits(s);
+  s = s.toLowerCase();
+  s = s.replaceAll(_metaPunctuation, ' ');
+  s = s.replaceAll(_metaWhitespace, ' ').trim();
+  s = s.replaceFirst(_metaLabelPrefix, '').trim();
+  return s;
+}
+
+/// Score how well [normalizedQuery] matches [haystack]. Query should already
+/// be passed through [normalizeMetaQuery] when possible; raw is accepted too.
+int metaQueryScore(String haystack, String normalizedQuery) {
+  final q = normalizeMetaQuery(normalizedQuery);
+  if (q.isEmpty) return 100;
+  if (haystack.isEmpty) return 0;
+
+  final h = normalizeMetaQuery(haystack);
+  if (h.isEmpty) return 0;
+
+  if (h == q) return 95;
+
+  final queryCompact = q.replaceAll(' ', '');
+  final hayCompact = h.replaceAll(' ', '');
+
+  if (hayCompact == queryCompact) return 92;
+
+  var best = 0;
+  if (h.contains(q) || hayCompact.contains(queryCompact)) {
+    best = 70;
+  }
+  if (queryCompact.length >= 2 &&
+      (hayCompact.startsWith(queryCompact) ||
+          queryCompact.startsWith(hayCompact))) {
+    if (80 > best) best = 80;
+  }
+
+  final qTokens = _metaTokens(q);
+  final hTokens = _metaTokens(h);
+  for (final qt in qTokens) {
+    for (final ht in hTokens) {
+      final score = _tokenScore(qt, ht);
+      if (score > best) best = score;
+    }
+  }
+
+  final qSkel = _latinSkeleton(queryCompact);
+  final hSkel = _latinSkeleton(hayCompact);
+  if (qSkel.length >= 2 && hSkel.length >= 2) {
+    if (qSkel == hSkel && 78 > best) best = 78;
+    if ((hSkel.contains(qSkel) || qSkel.contains(hSkel)) && 55 > best) {
+      best = 55;
+    }
+  }
+
+  if (_arabicScriptRatio(q) > 0.4 || _arabicScriptRatio(h) > 0.4) {
+    final qLetters = _arabicLettersOnly(queryCompact);
+    final hLetters = _arabicLettersOnly(hayCompact);
+    if (qLetters.isNotEmpty && hLetters.isNotEmpty) {
+      if (_isLetterSubsequence(hLetters, qLetters) ||
+          _isLetterSubsequence(qLetters, hLetters)) {
+        final shortLen = qLetters.length < hLetters.length
+            ? qLetters.length
+            : hLetters.length;
+        if (shortLen >= 2 && 60 > best) best = 60;
+      }
+    }
+  }
+
+  return best;
+}
+
+List<String> _metaTokens(String normalized) {
+  return normalized
+      .split(_metaWhitespace)
+      .map((t) => t.trim())
+      .where((t) => t.isNotEmpty)
+      .map(_stripLeadingArticle)
+      .where((t) => t.isNotEmpty)
+      .toList(growable: false);
+}
+
+String _stripLeadingArticle(String token) {
+  var t = token;
+  if (_metaLatinArticle.hasMatch(t)) {
+    t = t.replaceFirst(_metaLatinArticle, '');
+  }
+  if (_metaArabicArticle.hasMatch(t)) {
+    t = t.replaceFirst(_metaArabicArticle, '');
+  }
+  return t;
+}
+
+int _tokenScore(String queryToken, String hayToken) {
+  if (queryToken.isEmpty || hayToken.isEmpty) return 0;
+  if (queryToken == hayToken) return 90;
+  if (hayToken.startsWith(queryToken) || queryToken.startsWith(hayToken)) {
+    return queryToken.length >= 2 ? 75 : 0;
+  }
+  if (hayToken.contains(queryToken) || queryToken.contains(hayToken)) {
+    return queryToken.length >= 3 ? 65 : 0;
+  }
+  final qs = _latinSkeleton(queryToken);
+  final hs = _latinSkeleton(hayToken);
+  if (qs.length >= 2 && hs.length >= 2 && qs == hs) return 72;
+  if (qs.length >= 3 && hs.length >= 3 && (hs.contains(qs) || qs.contains(hs))) {
+    return 50;
+  }
+  return 0;
+}
+
+String _latinSkeleton(String input) {
+  var s = input.toLowerCase();
+  s = s.replaceAll(_metaNonLatin, '');
+  if (s.isEmpty) return '';
+  s = s.replaceAll('ee', 'i');
+  s = s.replaceAll('oo', 'u');
+  s = s.replaceAll('aa', 'a');
+  s = s.replaceAll('ou', 'u');
+  s = s.replaceAllMapped(_metaDoubleLetter, (m) => m.group(1)!);
+  s = s.replaceFirst(RegExp(r'^(al|ar|an|as|ad|adh|ath|az|el)'), '');
+  s = s.replaceAll(_metaLatinVowels, '');
+  return s;
+}
+
+String _foldArabicLetters(String input) {
+  final buffer = StringBuffer();
+  for (final unit in input.runes) {
+    switch (unit) {
+      case 0x0622:
+      case 0x0623:
+      case 0x0625:
+      case 0x0627:
+      case 0x0671:
+        buffer.writeCharCode(0x0627);
+      case 0x0629:
+      case 0x06C3:
+        buffer.writeCharCode(0x0647);
+      case 0x06C1:
+      case 0x06D5:
+        buffer.writeCharCode(0x0647);
+      case 0x0649:
+      case 0x06CC:
+      case 0x06D2:
+        buffer.writeCharCode(0x064A);
+      case 0x06A9:
+      case 0x06AA:
+        buffer.writeCharCode(0x0643);
+      case 0x06BA:
+        buffer.writeCharCode(0x0646);
+      case 0x0624:
+        buffer.writeCharCode(0x0648);
+      case 0x0626:
+        buffer.writeCharCode(0x064A);
+      default:
+        buffer.writeCharCode(unit);
+    }
+  }
+  return buffer.toString();
+}
+
+String _westernDigits(String input) {
+  final buffer = StringBuffer();
+  for (final unit in input.runes) {
+    if (unit >= 0x0660 && unit <= 0x0669) {
+      buffer.writeCharCode(0x30 + (unit - 0x0660));
+    } else if (unit >= 0x06F0 && unit <= 0x06F9) {
+      buffer.writeCharCode(0x30 + (unit - 0x06F0));
+    } else {
+      buffer.writeCharCode(unit);
+    }
+  }
+  return buffer.toString();
+}
+
+String _arabicLettersOnly(String input) {
+  final buffer = StringBuffer();
+  for (final unit in input.runes) {
+    if (unit >= 0x0621 && unit <= 0x064A) {
+      buffer.writeCharCode(unit);
+    } else if (unit >= 0x0670 && unit <= 0x06D3) {
+      buffer.writeCharCode(unit);
+    }
+  }
+  return buffer.toString();
+}
+
+double _arabicScriptRatio(String input) {
+  if (input.isEmpty) return 0;
+  var arabic = 0;
+  var total = 0;
+  for (final unit in input.runes) {
+    if (unit == 0x20) continue;
+    total++;
+    if ((unit >= 0x0600 && unit <= 0x06FF) ||
+        (unit >= 0x0750 && unit <= 0x077F)) {
+      arabic++;
+    }
+  }
+  if (total == 0) return 0;
+  return arabic / total;
+}
+
+bool _isLetterSubsequence(String needle, String hay) {
+  if (needle.isEmpty) return true;
+  final needleRunes = needle.runes.toList(growable: false);
+  final hayRunes = hay.runes.toList(growable: false);
+  if (needleRunes.length > hayRunes.length) return false;
+  var i = 0;
+  for (final unit in hayRunes) {
+    if (unit == needleRunes[i]) {
+      i++;
+      if (i >= needleRunes.length) return true;
+    }
+  }
+  return false;
 }

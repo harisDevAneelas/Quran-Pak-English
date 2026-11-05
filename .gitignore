@@ -52,6 +52,7 @@ app.*.map.json
 
 /test/
 /specs/
+/assets/data/english_db.sqlite
 
 # Secrets & machine-local Android SDK paths (never commit)
 **/local.properties

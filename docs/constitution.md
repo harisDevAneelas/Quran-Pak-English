@@ -45,6 +45,6 @@ These are already true. A plan or a code change that breaks one of them is wrong
 
 ## Startup and audio
 
-- Startup keeps `splash_screen.jpeg` full-screen until `QuranApp` bootstrap finishes (database, profiles, settings, font warm-up, metadata, and a small mushaf window around the opening position). Android 12+ OS splash can only be a color plus a circular icon, so Flutter paints that same JPEG after the first frame. The rest of `quran.colored.json` finishes loading in the background after the reader is shown.
+- Startup keeps `splash_screen.png` full-screen until `QuranApp` bootstrap finishes (database, profiles, settings, font warm-up, metadata, and a small mushaf window around the opening position). Namaz notification reschedule and location run after the first reader frame, not on the splash critical path. Android 12+ OS splash can only be a color plus a circular icon, so Flutter paints that same PNG after the first frame. The rest of `quran.colored.json` finishes loading in the background after the reader is shown.
 - Ayah audio uses a new `AudioPlayer` per ayah. On web, reusing one player repeats the first file for later ayahs.
 - Reciter and spoken-translation URLs are `https://qurancompany.com/quran/reciters/{id}/SSSAAA.mp3` and `.../languages/{id}/SSSAAA.mp3`. `SSS` and `AAA` are zero-padded surah and CDN ayah. Surah 1 ayah 1 plays `001001` then `001002`.

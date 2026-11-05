@@ -3,10 +3,12 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../data/recommended_surah.dart';
 import 'profile_scoped_prefs.dart';
 
-/// Profile-scoped hub pins for occasion surahs (مستقل / Quick list).
+/// Profile-scoped hub pins for Quick list (any surah 1–114).
+///
+/// The pin sheet still lists the eight occasion surahs for manual toggles.
+/// Starred surahs from the index grid are added/removed via [setPinned].
 ///
 /// Notifies on [bind] and [save] so an open hub can reload after a profile switch.
 class PinnedSurahStore extends ChangeNotifier {
@@ -26,6 +28,8 @@ class PinnedSurahStore extends ChangeNotifier {
 
   String get _key => ProfileScopedPrefs.key(_profileId, _baseKey);
 
+  static bool _isValidSurah(int id) => id >= 1 && id <= 114;
+
   Future<Set<int>> load() async {
     final prefs = await SharedPreferences.getInstance();
     final raw = prefs.getString(_key);
@@ -36,7 +40,7 @@ class PinnedSurahStore extends ChangeNotifier {
       final out = <int>{};
       for (final item in list) {
         final id = item is int ? item : int.tryParse('$item');
-        if (id != null && OccasionSurahs.contains(id)) out.add(id);
+        if (id != null && _isValidSurah(id)) out.add(id);
       }
       return out;
     } catch (_) {
@@ -49,7 +53,7 @@ class PinnedSurahStore extends ChangeNotifier {
     final forProfile = _profileId;
     final cleaned = [
       for (final id in surahs)
-        if (OccasionSurahs.contains(id)) id,
+        if (_isValidSurah(id)) id,
     ]..sort();
     await prefs.setString(
       ProfileScopedPrefs.key(forProfile, _baseKey),
@@ -60,7 +64,7 @@ class PinnedSurahStore extends ChangeNotifier {
   }
 
   Future<void> setPinned(int surah, bool pinned) async {
-    if (!OccasionSurahs.contains(surah)) return;
+    if (!_isValidSurah(surah)) return;
     final current = await load();
     if (pinned) {
       current.add(surah);

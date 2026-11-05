@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "work.quran.quraninenglish" "\0"
-            VALUE "FileDescription", "Quran Pak" "\0"
+            VALUE "FileDescription", "Quran with English" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "quran_app" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026. All rights reserved." "\0"
             VALUE "OriginalFilename", "quran_app.exe" "\0"
-            VALUE "ProductName", "Quran Pak" "\0"
+            VALUE "ProductName", "Quran with English" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

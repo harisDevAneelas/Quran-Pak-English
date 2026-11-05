@@ -37,26 +37,23 @@ dev_dependencies:
   flutter_launcher_icons: ^0.14.4
 
 flutter_native_splash:
-  background_image: assets/splash/splash_screen.jpeg
+  # English splash (cropped from splash.png). One asset: splash_screen.png.
+  background_image: assets/splash/splash_screen.png
   android_12:
-    # OS splash cannot be a full-screen JPEG (circle icon only). Match the
-    # artwork orange so the brief system splash does not crop the design;
-    # Flutter then paints splash_screen.jpeg until bootstrap finishes.
-    color: "#E65000"
-    icon_background_color: "#E65000"
+    color: "#E6500A"
+    icon_background_color: "#E6500A"
     image: assets/splash/android12_transparent.png
   ios: true
   web: true
   fullscreen: true
 
 flutter_launcher_icons:
-  android: true
-  ios: true
+  android: false
+  ios: false
   web:
     generate: true
   image_path: assets/splash/app_icon.png
-  # Launcher icons are supplied under android/app/src/main/res (adaptive) and
-  # ios AppIcon.appiconset; regenerate from image_path only when replacing art.
+  # Android/iOS launcher packs come from english-icons/; regenerate web only.
 
 flutter:
   uses-material-design: true
@@ -67,7 +64,7 @@ flutter:
     - assets/data/english_db.sqlite
     - assets/fonts/KFGQPCNastaleeq-Regular.ttf
     - assets/fonts/AlQuranIndoPak.ttf
-    - assets/splash/splash_screen.jpeg
+    - assets/splash/splash_screen.png
     - assets/reciters/
     - assets/flags/
     - assets/azan-audio/

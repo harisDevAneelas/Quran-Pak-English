@@ -5,21 +5,21 @@ import '../../core/quran_font.dart';
 import '../../core/app_dimens.dart';
 import '../../data/quran_metadata.dart';
 import '../../data/recommended_surah.dart';
+import '../index_bookmark_store.dart';
 import '../pinned_surah_store.dart';
 import '../reader_nav_scope.dart';
 import '../widgets/namaz_time_bar.dart';
 import '../widgets/playing_ayah_bar.dart';
 import '../widgets/reader_sidebar.dart';
-import '../widgets/surah_ayah_picker_sheet.dart';
+import 'para_grid_screen.dart';
+import 'surah_grid_screen.dart';
 
 class HubMenuScreen extends StatefulWidget {
   const HubMenuScreen({
     super.key,
-    required this.initialSurah,
-    required this.initialAyah,
     required this.pinnedSurahStore,
+    required this.indexBookmarkStore,
     required this.onJumpToSurah,
-    required this.onJumpToAyah,
     required this.onOpenManzilList,
     required this.onOpenTodaysRecitation,
     required this.onOpenDailyArrangement,
@@ -29,11 +29,9 @@ class HubMenuScreen extends StatefulWidget {
     this.onLocationUpdated,
   });
 
-  final int initialSurah;
-  final int initialAyah;
   final PinnedSurahStore pinnedSurahStore;
+  final IndexBookmarkStore indexBookmarkStore;
   final ValueChanged<int> onJumpToSurah;
-  final void Function(int surah, int ayah) onJumpToAyah;
   final VoidCallback onOpenManzilList;
   final VoidCallback onOpenTodaysRecitation;
   final VoidCallback onOpenDailyArrangement;
@@ -50,6 +48,8 @@ class HubMenuScreen extends StatefulWidget {
 class _HubMenuScreenState extends State<HubMenuScreen> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   Set<int> _pinned = {};
+  /// Mark order (first bookmarked first).
+  List<int> _starredSurahs = const [];
   bool _pinsReady = false;
   String? _loadedForProfile;
   int _loadGen = 0;
@@ -57,13 +57,15 @@ class _HubMenuScreenState extends State<HubMenuScreen> {
   @override
   void initState() {
     super.initState();
-    widget.pinnedSurahStore.addListener(_onPinnedStoreChanged);
+    widget.pinnedSurahStore.addListener(_onStoresChanged);
+    widget.indexBookmarkStore.addListener(_onStoresChanged);
     _loadPins();
   }
 
   @override
   void dispose() {
-    widget.pinnedSurahStore.removeListener(_onPinnedStoreChanged);
+    widget.pinnedSurahStore.removeListener(_onStoresChanged);
+    widget.indexBookmarkStore.removeListener(_onStoresChanged);
     super.dispose();
   }
 
@@ -71,13 +73,20 @@ class _HubMenuScreenState extends State<HubMenuScreen> {
   void didUpdateWidget(covariant HubMenuScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.pinnedSurahStore != widget.pinnedSurahStore) {
-      oldWidget.pinnedSurahStore.removeListener(_onPinnedStoreChanged);
-      widget.pinnedSurahStore.addListener(_onPinnedStoreChanged);
+      oldWidget.pinnedSurahStore.removeListener(_onStoresChanged);
+      widget.pinnedSurahStore.addListener(_onStoresChanged);
+    }
+    if (oldWidget.indexBookmarkStore != widget.indexBookmarkStore) {
+      oldWidget.indexBookmarkStore.removeListener(_onStoresChanged);
+      widget.indexBookmarkStore.addListener(_onStoresChanged);
+    }
+    if (oldWidget.pinnedSurahStore != widget.pinnedSurahStore ||
+        oldWidget.indexBookmarkStore != widget.indexBookmarkStore) {
       _loadPins();
     }
   }
 
-  void _onPinnedStoreChanged() {
+  void _onStoresChanged() {
     if (!mounted) return;
     _loadPins();
   }
@@ -86,32 +95,36 @@ class _HubMenuScreenState extends State<HubMenuScreen> {
     final gen = ++_loadGen;
     final forProfile = widget.pinnedSurahStore.profileId;
     final pins = await widget.pinnedSurahStore.load();
+    final starredSurahs = await widget.indexBookmarkStore.loadSurahs();
     if (!mounted || gen != _loadGen) return;
     if (widget.pinnedSurahStore.profileId != forProfile) return;
     setState(() {
       _pinned = pins;
+      _starredSurahs = List<int>.from(starredSurahs);
       _pinsReady = true;
       _loadedForProfile = forProfile;
     });
   }
 
-  Future<void> _openSurahPicker() async {
-    final surah = await showSurahListPickerSheet(
-      context: context,
-      initialSurah: widget.initialSurah,
+  void _openSurahGrid() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SurahGridScreen(
+          indexBookmarkStore: widget.indexBookmarkStore,
+          pinnedSurahStore: widget.pinnedSurahStore,
+        ),
+      ),
     );
-    if (!mounted || surah == null) return;
-    widget.onJumpToSurah(surah);
   }
 
-  Future<void> _openParaPicker() async {
-    final picked = await showParaListPickerSheet(
-      context: context,
-      initialSurah: widget.initialSurah,
-      initialAyah: widget.initialAyah,
+  void _openParaGrid() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ParaGridScreen(
+          indexBookmarkStore: widget.indexBookmarkStore,
+        ),
+      ),
     );
-    if (!mounted || picked == null) return;
-    widget.onJumpToAyah(picked.surah, picked.ayah);
   }
 
   Future<void> _openPinSheet() async {
@@ -125,7 +138,9 @@ class _HubMenuScreenState extends State<HubMenuScreen> {
       isScrollControlled: true,
       builder: (context) => _PinnedSurahSheet(
         initial: Set<int>.from(_pinned),
+        bookmarked: List<int>.from(_starredSurahs),
         onChanged: (next) async {
+          // Row check/uncheck only updates hub pins — star stays.
           await widget.pinnedSurahStore.save(next);
           if (!mounted) return;
           if (widget.pinnedSurahStore.profileId != _loadedForProfile) {
@@ -134,8 +149,32 @@ class _HubMenuScreenState extends State<HubMenuScreen> {
           }
           setState(() => _pinned = next);
         },
+        onStarClear: (surahId) async {
+          // Star button: unpin from hub/quick list and clear bookmark.
+          final next = {..._pinned}..remove(surahId);
+          await widget.pinnedSurahStore.save(next);
+          await widget.indexBookmarkStore.setSurahBookmarked(surahId, false);
+          if (!mounted) return;
+          if (widget.pinnedSurahStore.profileId != _loadedForProfile) {
+            await _loadPins();
+            return;
+          }
+          setState(() {
+            _pinned = next;
+            _starredSurahs = [..._starredSurahs]..remove(surahId);
+          });
+        },
       ),
     );
+  }
+
+  String _surahHubLabel(int id) {
+    final occasion = OccasionSurahs.byId(id);
+    if (occasion != null) return occasion.titleUr;
+    final meta = QuranMetadata.surahOrNull(id);
+    final name = meta?.listTitle ?? QuranMetadata.nameArOrEmpty(id);
+    if (name.isNotEmpty) return name;
+    return 'Surah $id';
   }
 
   List<_HubTile> _tiles(BuildContext context) {
@@ -144,30 +183,32 @@ class _HubMenuScreenState extends State<HubMenuScreen> {
     final shown = <int>{};
     final surahTiles = <_HubTile>[];
 
-    void addSurah(RecommendedSurah surah, {required bool highlighted}) {
-      if (!shown.add(surah.surah)) return;
+    void addSurahTile(int id, {required bool highlighted, String? label}) {
+      if (!shown.add(id)) return;
       surahTiles.add(
         _HubTile(
-          label: surah.titleUr,
+          label: label ?? _surahHubLabel(id),
           highlighted: highlighted,
-          onTap: () => widget.onJumpToSurah(surah.surah),
+          onTap: () => widget.onJumpToSurah(id),
         ),
       );
     }
 
+    // Bookmarked / pinned surahs only (paras stay off the hub).
     for (final id in _pinned) {
-      final surah = OccasionSurahs.byId(id);
-      if (surah != null) {
-        addSurah(surah, highlighted: timedIds.contains(id));
-      }
+      addSurahTile(id, highlighted: timedIds.contains(id));
     }
     for (final surah in timed) {
-      addSurah(surah, highlighted: true);
+      addSurahTile(
+        surah.surah,
+        highlighted: true,
+        label: surah.titleUr,
+      );
     }
 
     return [
-      _HubTile(label: 'Surah list', onTap: _openSurahPicker),
-      _HubTile(label: 'Para list', onTap: _openParaPicker),
+      _HubTile(label: 'Surah list', onTap: _openSurahGrid),
+      _HubTile(label: 'Para list', onTap: _openParaGrid),
       _HubTile(
         label: "Today's recitation",
         highlighted: true,
@@ -200,15 +241,12 @@ class _HubMenuScreenState extends State<HubMenuScreen> {
           : ReaderMenuDrawer(
               settings: nav.settings,
               activeProfileName: nav.profileName,
-              onSurahSelected: nav.nav.jumpToSurah,
-              onAyahSelected: nav.nav.jumpToAyah,
               onDestination: (destination) {
-                _scaffoldKey.currentState?.closeDrawer();
+                _scaffoldKey.currentState?.closeEndDrawer();
                 nav.nav.openDestination(destination);
               },
             ),
       appBar: AppBar(
-        centerTitle: true,
         backgroundColor: Colors.transparent,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
@@ -341,11 +379,17 @@ class _HubMenuScreenState extends State<HubMenuScreen> {
 class _PinnedSurahSheet extends StatefulWidget {
   const _PinnedSurahSheet({
     required this.initial,
+    required this.bookmarked,
     required this.onChanged,
+    required this.onStarClear,
   });
 
   final Set<int> initial;
+  /// Bookmarked surahs in mark order (first bookmarked first).
+  final List<int> bookmarked;
   final ValueChanged<Set<int>> onChanged;
+  /// Star tap: remove from quick list / hub and clear the bookmark.
+  final ValueChanged<int> onStarClear;
 
   @override
   State<_PinnedSurahSheet> createState() => _PinnedSurahSheetState();
@@ -353,11 +397,13 @@ class _PinnedSurahSheet extends StatefulWidget {
 
 class _PinnedSurahSheetState extends State<_PinnedSurahSheet> {
   late Set<int> _selected;
+  late List<int> _bookmarked;
 
   @override
   void initState() {
     super.initState();
     _selected = Set<int>.from(widget.initial);
+    _bookmarked = List<int>.from(widget.bookmarked);
   }
 
   void _toggle(int surahId) {
@@ -371,11 +417,61 @@ class _PinnedSurahSheetState extends State<_PinnedSurahSheet> {
     widget.onChanged(Set<int>.from(_selected));
   }
 
+  void _onStarPressed(int surahId) {
+    setState(() {
+      _selected.remove(surahId);
+      _bookmarked.remove(surahId);
+    });
+    widget.onStarClear(surahId);
+  }
+
+  String _titleFor(int id) {
+    final occasion = OccasionSurahs.byId(id);
+    if (occasion != null) return occasion.titleUr;
+    final meta = QuranMetadata.surahOrNull(id);
+    final name = meta?.listTitle ?? QuranMetadata.nameArOrEmpty(id);
+    if (name.isNotEmpty) return name;
+    return 'Surah $id';
+  }
+
+  /// Eight occasion rows, then other pinned or bookmarked surahs (mark order).
+  List<({int id, String title, bool starred})> _sheetRows() {
+    final rows = <({int id, String title, bool starred})>[
+      for (final surah in OccasionSurahs.all)
+        (
+          id: surah.surah,
+          title: surah.titleUr,
+          starred: _bookmarked.contains(surah.surah),
+        ),
+    ];
+    final seen = <int>{};
+    final extras = <int>[];
+    for (final id in _bookmarked) {
+      if (OccasionSurahs.contains(id)) continue;
+      if (!seen.add(id)) continue;
+      extras.add(id);
+    }
+    for (final id in _selected) {
+      if (OccasionSurahs.contains(id)) continue;
+      if (!seen.add(id)) continue;
+      extras.add(id);
+    }
+    for (final id in extras) {
+      rows.add((
+        id: id,
+        title: _titleFor(id),
+        starred: _bookmarked.contains(id),
+      ));
+    }
+    return rows;
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final ink = theme.colorScheme.onSurface;
     final isDark = theme.brightness == Brightness.dark;
+    final rows = _sheetRows();
 
     return Directionality(
       textDirection: TextDirection.ltr,
@@ -420,11 +516,11 @@ class _PinnedSurahSheetState extends State<_PinnedSurahSheet> {
                 ),
                 child: ListView.separated(
                   shrinkWrap: true,
-                  itemCount: OccasionSurahs.all.length,
+                  itemCount: rows.length,
                   separatorBuilder: (_, _) => const SizedBox(height: 8),
                   itemBuilder: (context, index) {
-                    final surah = OccasionSurahs.all[index];
-                    final selected = _selected.contains(surah.surah);
+                    final row = rows[index];
+                    final selected = _selected.contains(row.id);
                     return Material(
                       color: selected
                           ? AppTheme.orange.withValues(alpha: 0.12)
@@ -442,7 +538,7 @@ class _PinnedSurahSheetState extends State<_PinnedSurahSheet> {
                       ),
                       child: InkWell(
                         borderRadius: BorderRadius.circular(14),
-                        onTap: () => _toggle(surah.surah),
+                        onTap: () => _toggle(row.id),
                         child: Padding(
                           padding: const EdgeInsets.symmetric(
                             horizontal: 14,
@@ -462,9 +558,7 @@ class _PinnedSurahSheetState extends State<_PinnedSurahSheet> {
                               const SizedBox(width: 12),
                               Expanded(
                                 child: Text(
-                                  surah.titleUr,
-                                  textAlign: TextAlign.left,
-                                  textDirection: TextDirection.ltr,
+                                  row.title,
                                   style: TextStyle(
                                     fontWeight: FontWeight.w700,
                                     fontSize: 16,
@@ -472,6 +566,22 @@ class _PinnedSurahSheetState extends State<_PinnedSurahSheet> {
                                   ),
                                 ),
                               ),
+                              if (row.starred)
+                                IconButton(
+                                  tooltip: 'Remove bookmark',
+                                  onPressed: () => _onStarPressed(row.id),
+                                  visualDensity: VisualDensity.compact,
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(
+                                    minWidth: 36,
+                                    minHeight: 36,
+                                  ),
+                                  icon: const Icon(
+                                    Icons.star_rounded,
+                                    color: AppTheme.orange,
+                                    size: 22,
+                                  ),
+                                ),
                             ],
                           ),
                         ),
@@ -558,26 +668,24 @@ class _HubTileButton extends StatelessWidget {
             gradient: tile.highlighted ? _highlightGradient : null,
             borderRadius: radius,
           ),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: AppDimens.hubTilePadH,
-                vertical: AppDimens.hubTilePadV,
-              ),
-              child: Center(
-                child: ScreenFitText(
-                  tile.label,
-                  maxLines: 2,
-                  minFontSize: AppDimens.fontHubTileMin,
-                  textAlign: TextAlign.center,
-                  textDirection: TextDirection.ltr,
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: AppDimens.scaled(context, AppDimens.fontHubTile),
-                    fontWeight: FontWeight.w700,
-                    height: 1.25,
-                  ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppDimens.hubTilePadH,
+              vertical: AppDimens.hubTilePadV,
+            ),
+            child: Center(
+              child: ScreenFitText(
+                tile.label,
+                maxLines: 2,
+                minFontSize: AppDimens.fontHubTileMin,
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: AppDimens.scaled(context, AppDimens.fontHubTile),
+                  fontWeight: FontWeight.w700,
+                  height: 1.25,
                 ),
               ),
+            ),
           ),
         ),
       ),

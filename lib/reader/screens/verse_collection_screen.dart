@@ -5,6 +5,7 @@ import '../../data/quran_metadata.dart';
 import '../../data/quran_models.dart';
 import '../../data/verse_collections.dart';
 import '../reader_settings.dart';
+import '../widgets/mushaf_pinch_zoom.dart';
 import '../widgets/quran_ayah_widget.dart';
 import '../widgets/reader_page_scaffold.dart';
 import '../widgets/recitation_bismillah.dart';
@@ -25,6 +26,44 @@ class VerseCollectionScreen extends StatefulWidget {
 
 class _VerseCollectionScreenState extends State<VerseCollectionScreen> {
   late final Future<QuranMetadata> _metaFuture = QuranMetadata.load();
+  final ScrollController _scroll = ScrollController();
+  double? _pinchScrollFrac;
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  void _onPinchStarted(Offset _) {
+    if (!_scroll.hasClients) {
+      _pinchScrollFrac = null;
+      return;
+    }
+    final pos = _scroll.position;
+    final max = pos.maxScrollExtent;
+    _pinchScrollFrac = max <= 0 ? 0.0 : (pos.pixels / max).clamp(0.0, 1.0);
+  }
+
+  void _onPinchFontSize(double size) {
+    widget.settings.setFontSize(size);
+    _restoreScrollFraction();
+  }
+
+  void _onPinchEnded() {
+    _restoreScrollFraction();
+    _pinchScrollFrac = null;
+  }
+
+  void _restoreScrollFraction() {
+    final frac = _pinchScrollFrac;
+    if (frac == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scroll.hasClients) return;
+      final max = _scroll.position.maxScrollExtent;
+      _scroll.jumpTo((frac * max).clamp(0.0, max));
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -43,28 +82,42 @@ class _VerseCollectionScreenState extends State<VerseCollectionScreen> {
               final bismillah = snap.hasData
                   ? snap.data!.bismillahWords.join(' ')
                   : QuranMetadata.bismillahTextOrEmpty();
-              return ListView.builder(
-                padding: const EdgeInsets.fromLTRB(0, 8, 0, 32),
-                itemCount: groups.length + 1,
-                itemBuilder: (context, index) {
-                  if (index == 0) {
-                    return RecitationBismillah(
-                      text: bismillah,
-                      fontSize: widget.settings.fontSize,
-                      inkColor: ink,
+              return MushafPinchZoom(
+                fontSize: widget.settings.fontSize,
+                onPinchStarted: _onPinchStarted,
+                onPinchEnded: _onPinchEnded,
+                onFontSizeChanged: _onPinchFontSize,
+                child: Builder(
+                  builder: (context) {
+                    return ListView.builder(
+                      controller: _scroll,
+                      physics: MushafPinchLock.of(context)
+                          ? const NeverScrollableScrollPhysics()
+                          : null,
+                      padding: const EdgeInsets.fromLTRB(0, 8, 0, 32),
+                      itemCount: groups.length + 1,
+                      itemBuilder: (context, index) {
+                        if (index == 0) {
+                          return RecitationBismillah(
+                            text: bismillah,
+                            fontSize: widget.settings.fontSize,
+                            inkColor: ink,
+                          );
+                        }
+                        final group = groups[index - 1];
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: _VerseGroupCard(
+                            group: group,
+                            fontSize: widget.settings.fontSize,
+                            tajweedEnabled: widget.settings.tajweedEnabled,
+                            inkColor: ink,
+                          ),
+                        );
+                      },
                     );
-                  }
-                  final group = groups[index - 1];
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: _VerseGroupCard(
-                      group: group,
-                      fontSize: widget.settings.fontSize,
-                      tajweedEnabled: widget.settings.tajweedEnabled,
-                      inkColor: ink,
-                    ),
-                  );
-                },
+                  },
+                ),
               );
             },
           );

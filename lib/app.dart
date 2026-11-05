@@ -13,6 +13,7 @@ import 'quran/rendering/kfgqpc_font_scope.dart';
 import 'reader/app_notification_scheduler.dart';
 import 'reader/bookmark_store.dart';
 import 'reader/daily_plan.dart';
+import 'reader/index_bookmark_store.dart';
 import 'reader/learned_notify_store.dart';
 import 'reader/pinned_surah_store.dart';
 import 'reader/prayer_time_service.dart';
@@ -40,6 +41,8 @@ class _QuranAppState extends State<QuranApp> {
   late final ReadingPositionStore _positionStore =
       ReadingPositionStore(profileId: '_boot');
   late final BookmarkStore _bookmarkStore = BookmarkStore(profileId: '_boot');
+  late final IndexBookmarkStore _indexBookmarkStore =
+      IndexBookmarkStore(profileId: '_boot');
   late final DailyPlanStore _dailyPlanStore =
       DailyPlanStore(profileId: '_boot');
   late final PinnedSurahStore _pinnedSurahStore =
@@ -65,13 +68,15 @@ class _QuranAppState extends State<QuranApp> {
 
   Future<void> _bootstrap() async {
     try {
-      // Android 12+ cannot paint splash_screen.jpeg as the OS splash (circle
-      // icon only). Decode the JPEG, then drop the native splash so Flutter
-      // can show the same artwork for the rest of bootstrap.
+      // Android 12+ cannot paint splash_screen.png as the OS splash (circle
+      // icon only). Decode the PNG into Flutter's image cache, then drop the
+      // native splash so [_BootstrapSplash] can show the same artwork.
       await _revealFlutterSplash();
 
-      // Splash waits for a small mushaf window + fonts/metadata — not the
-      // full JSON parse. The controller finishes the mushaf in the background.
+      // Splash waits only for what the mushaf needs to paint: DB, profile,
+      // settings, fonts/metadata, divisions, and a small ayah window. Namaz
+      // notification reschedule runs after the first reader frame so warm
+      // reopen stays fast (first install may still copy the large SQLite).
       final fontWarm = KfgqpcFontPath.resolve().then(warmJustificationShaper);
       final metaWarm = QuranMetadata.load();
 
@@ -91,17 +96,19 @@ class _QuranAppState extends State<QuranApp> {
         _controller.initialize(),
       ]);
 
-      await _rescheduleNotifications();
-
       if (!mounted) return;
       setState(() => _ready = true);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        unawaited(_rescheduleNotifications());
+      });
     } finally {
       FlutterNativeSplash.remove();
     }
   }
 
-  /// Decodes the JPEG into the image cache, then allows the first Flutter
-  /// frame so [_BootstrapSplash] replaces the OS splash.
+  /// Decodes the splash PNG into the image cache, then allows the first
+  /// Flutter frame so [_BootstrapSplash] replaces the OS splash.
   Future<void> _revealFlutterSplash() async {
     final stream = _BootstrapSplash.image.resolve(
       const ImageConfiguration(devicePixelRatio: 3),
@@ -154,6 +161,7 @@ class _QuranAppState extends State<QuranApp> {
   void _bindStores(String profileId) {
     _positionStore.bind(profileId);
     _bookmarkStore.bind(profileId);
+    _indexBookmarkStore.bind(profileId);
     _dailyPlanStore.bind(profileId);
     _pinnedSurahStore.bind(profileId);
     _tilawatPositionStore.bind(profileId);
@@ -232,6 +240,7 @@ class _QuranAppState extends State<QuranApp> {
           settings: _settings,
           profiles: _profiles,
           bookmarkStore: _bookmarkStore,
+          indexBookmarkStore: _indexBookmarkStore,
           positionStore: _positionStore,
           dailyPlanStore: _dailyPlanStore,
           pinnedSurahStore: _pinnedSurahStore,
@@ -243,7 +252,7 @@ class _QuranAppState extends State<QuranApp> {
         ),
         builder: (context, child) {
           return MaterialApp(
-            title: 'Quran Pak',
+            title: 'Quran with English',
             debugShowCheckedModeBanner: false,
             themeMode: _settings.themeMode,
             theme: AppTheme.build(Brightness.light),
@@ -274,8 +283,8 @@ class _QuranAppState extends State<QuranApp> {
 class _BootstrapSplash extends StatelessWidget {
   const _BootstrapSplash();
 
-  static const image = AssetImage('assets/splash/splash_screen.jpeg');
-  static const _color = Color(0xFFE65000);
+  static const image = AssetImage('assets/splash/splash_screen.png');
+  static const _color = Color(0xFFE6500A);
 
   @override
   Widget build(BuildContext context) {

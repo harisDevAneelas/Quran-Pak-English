@@ -21,6 +21,7 @@ import '../profile_manager.dart';
 import '../reader_nav_scope.dart';
 import '../reader_settings.dart';
 import '../tilawat_position_store.dart';
+import '../widgets/mushaf_pinch_zoom.dart';
 import '../widgets/orange_app_bar.dart';
 import '../widgets/quran_ayah_widget.dart';
 import '../widgets/reader_page_scaffold.dart';
@@ -104,6 +105,11 @@ class _TodaysRecitationScreenState extends State<TodaysRecitationScreen>
   bool _ignorePortionScroll = false;
   int _askGeneration = 0;
   _EndPrompt _prompt = _EndPrompt.hidden;
+
+  final GlobalKey _pinchKey = GlobalKey();
+  int? _pinchAnchorIndex;
+  double? _pinchAnchorAlignment;
+  double? _pinchPortionScrollFrac;
 
   /// Standalone page bismillah only when the list does not open on a surah header.
   bool get _showPageBismillah =>
@@ -592,6 +598,9 @@ class _TodaysRecitationScreenState extends State<TodaysRecitationScreen>
       builder: (context, _) {
         return ListView.builder(
           controller: _portionScroll,
+          physics: MushafPinchLock.of(context)
+              ? const NeverScrollableScrollPhysics()
+              : null,
           padding: const EdgeInsets.only(top: 12),
           itemCount: _itemCount,
           itemBuilder: (context, index) {
@@ -623,6 +632,9 @@ class _TodaysRecitationScreenState extends State<TodaysRecitationScreen>
         child: ScrollablePositionedList.builder(
           itemScrollController: _itemScroll,
           itemPositionsListener: _positions,
+          physics: MushafPinchLock.of(context)
+              ? const NeverScrollableScrollPhysics()
+              : null,
           initialScrollIndex: _initialScrollIndex,
           padding: const EdgeInsets.only(top: 12, bottom: 24),
           itemCount: _itemCount,
@@ -734,10 +746,16 @@ class _TodaysRecitationScreenState extends State<TodaysRecitationScreen>
                         textDirection: TextDirection.ltr,
                         child: Stack(
                           children: [
-                            if (_portionMode)
-                              _buildPortionList(ink)
-                            else
-                              _buildFullList(ink),
+                            MushafPinchZoom(
+                              key: _pinchKey,
+                              fontSize: widget.settings.fontSize,
+                              onPinchStarted: _onPinchStarted,
+                              onPinchEnded: _onPinchEnded,
+                              onFontSizeChanged: _onPinchFontSize,
+                              child: _portionMode
+                                  ? _buildPortionList(ink)
+                                  : _buildFullList(ink),
+                            ),
                             if (!_portionMode) _arrangementChrome(context),
                           ],
                         ),
@@ -746,6 +764,85 @@ class _TodaysRecitationScreenState extends State<TodaysRecitationScreen>
                   ),
       ),
     );
+  }
+
+  void _onPinchStarted(Offset localFocal) {
+    if (_portionMode) {
+      if (_portionScroll.hasClients) {
+        final pos = _portionScroll.position;
+        final max = pos.maxScrollExtent;
+        _pinchPortionScrollFrac =
+            max <= 0 ? 0.0 : (pos.pixels / max).clamp(0.0, 1.0);
+      }
+      _pinchAnchorIndex = null;
+      _pinchAnchorAlignment = null;
+      return;
+    }
+
+    _pinchPortionScrollFrac = null;
+    final box = _pinchKey.currentContext?.findRenderObject() as RenderBox?;
+    final height = box?.size.height ?? 1.0;
+    final frac = (localFocal.dy / height).clamp(0.0, 1.0);
+    final positions = _positions.itemPositions.value;
+    ItemPosition? hit;
+    for (final position in positions) {
+      if (position.itemLeadingEdge <= frac &&
+          position.itemTrailingEdge > frac) {
+        hit = position;
+        break;
+      }
+    }
+    hit ??= _topVisibleItemPosition(positions);
+    if (hit == null) {
+      _pinchAnchorIndex = null;
+      _pinchAnchorAlignment = null;
+      return;
+    }
+    _pinchAnchorIndex = hit.index;
+    _pinchAnchorAlignment = hit.itemLeadingEdge.clamp(0.0, 0.9);
+  }
+
+  ItemPosition? _topVisibleItemPosition(Iterable<ItemPosition> positions) {
+    ItemPosition? top;
+    for (final position in positions) {
+      if (position.itemTrailingEdge <= 0) continue;
+      if (position.itemLeadingEdge >= 1) continue;
+      if (top == null || position.itemLeadingEdge < top.itemLeadingEdge) {
+        top = position;
+      }
+    }
+    return top;
+  }
+
+  void _onPinchFontSize(double size) {
+    widget.settings.setFontSize(size);
+    _restorePinchAnchor();
+  }
+
+  void _onPinchEnded() {
+    _restorePinchAnchor();
+    _pinchAnchorIndex = null;
+    _pinchAnchorAlignment = null;
+    _pinchPortionScrollFrac = null;
+  }
+
+  void _restorePinchAnchor() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_portionMode) {
+        final frac = _pinchPortionScrollFrac;
+        if (frac == null || !_portionScroll.hasClients) return;
+        final max = _portionScroll.position.maxScrollExtent;
+        _portionScroll.jumpTo((frac * max).clamp(0.0, max));
+        return;
+      }
+      final index = _pinchAnchorIndex;
+      final alignment = _pinchAnchorAlignment;
+      if (index == null || alignment == null) return;
+      if (!_itemScroll.isAttached) return;
+      if (index < 0 || index >= _itemCount) return;
+      _itemScroll.jumpTo(index: index, alignment: alignment);
+    });
   }
 }
 

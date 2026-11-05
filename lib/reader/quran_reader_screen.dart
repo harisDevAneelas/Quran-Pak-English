@@ -8,7 +8,6 @@ import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
 import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
-import '../core/app_dimens.dart';
 import '../core/app_theme.dart';
 import '../core/mushaf_layout.dart';
 import '../quran/rendering/kfgqpc_font_scope.dart';
@@ -26,6 +25,7 @@ import 'ayah_audio_handler.dart';
 import 'app_notification_scheduler.dart';
 import 'bookmark_store.dart';
 import 'daily_plan.dart';
+import 'index_bookmark_store.dart';
 import 'learned_notify_store.dart';
 import 'notification_route.dart';
 import 'pinned_surah_store.dart';
@@ -40,10 +40,12 @@ import 'screens/bookmarks_screen.dart';
 import 'screens/daily_recitation_screen.dart';
 import 'screens/hub_menu_screen.dart';
 import 'screens/option_list_screen.dart';
+import 'screens/para_grid_screen.dart';
 import 'screens/profile_screen.dart';
 import 'screens/audio_language_list_screen.dart';
 import 'screens/reciter_list_screen.dart';
 import 'screens/surah_about_screen.dart';
+import 'screens/surah_grid_screen.dart';
 import 'screens/surah_search_screen.dart';
 import 'screens/ayah_translation_tafsir_screen.dart';
 import 'screens/todays_recitation_screen.dart';
@@ -52,6 +54,7 @@ import 'screens/word_by_word_screen.dart';
 import 'prayer_time_service.dart';
 import 'widgets/ayah_actions_popup.dart';
 import 'widgets/location_consent_dialog.dart';
+import 'widgets/mushaf_pinch_zoom.dart';
 import 'widgets/playing_ayah_bar.dart';
 import 'widgets/quran_ayah_widget.dart';
 import 'widgets/ruku_info_popup.dart';
@@ -67,6 +70,7 @@ class QuranReaderScreen extends StatefulWidget {
     required this.settings,
     required this.profiles,
     required this.bookmarkStore,
+    required this.indexBookmarkStore,
     required this.positionStore,
     required this.dailyPlanStore,
     required this.pinnedSurahStore,
@@ -81,6 +85,7 @@ class QuranReaderScreen extends StatefulWidget {
   final ReaderSettings settings;
   final ProfileManager profiles;
   final BookmarkStore bookmarkStore;
+  final IndexBookmarkStore indexBookmarkStore;
   final ReadingPositionStore positionStore;
   final DailyPlanStore dailyPlanStore;
   final PinnedSurahStore pinnedSurahStore;
@@ -121,13 +126,15 @@ class _QuranReaderScreenState extends State<QuranReaderScreen>
   int? _topVisibleAyahItemIndex;
   Orientation? _lastOrientation;
   bool _isRestoringOrientation = false;
+
+  /// Pinch-zoom anchor: keep this list index under the fingers while size changes.
+  final GlobalKey _mushafPinchKey = GlobalKey();
+  int? _pinchAnchorIndex;
+  double? _pinchAnchorAlignment;
+  bool _pinchActive = false;
   bool _translationsReady = false;
   List<String> _loadedTranslatorIds = const [];
   int _translationLoadGen = 0;
-
-  /// Bottom transport bar; hides while reading forward, shows on reverse scroll.
-  /// Kept off [setState] so toggling it does not rebuild the mushaf list.
-  final ValueNotifier<bool> _bottomBarVisible = ValueNotifier(true);
 
   /// Playing ayah for row highlight. Separate from the body [ListenableBuilder]
   /// so audio ticks do not rebuild the mushaf list.
@@ -243,7 +250,6 @@ class _QuranReaderScreenState extends State<QuranReaderScreen>
       _onItemPositionsChanged,
     );
     widget.controller.flushPositionSave();
-    _bottomBarVisible.dispose();
     _playingAyah.dispose();
     _followDetached.dispose();
     super.dispose();
@@ -637,14 +643,6 @@ class _QuranReaderScreenState extends State<QuranReaderScreen>
     }
   }
 
-  void _onSurahSelectedFromSidebar(int surah) {
-    _jumpToSurahFromNav(surah);
-  }
-
-  void _onAyahSelectedFromSidebar(int surah, int ayah) {
-    _jumpToAyahFromNav(surah, ayah);
-  }
-
   void _popToReader() {
     final nav = Navigator.of(context, rootNavigator: true);
     if (nav.canPop()) {
@@ -760,11 +758,9 @@ class _QuranReaderScreenState extends State<QuranReaderScreen>
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => HubMenuScreen(
-          initialSurah: widget.controller.currentSurah,
-          initialAyah: widget.controller.currentAyah,
           pinnedSurahStore: widget.pinnedSurahStore,
+          indexBookmarkStore: widget.indexBookmarkStore,
           onJumpToSurah: _jumpToSurahFromNav,
-          onJumpToAyah: _jumpToAyahFromNav,
           onOpenManzilList: () {
             _openVerseCollectionById(VerseCollectionIds.manzil);
           },
@@ -816,6 +812,10 @@ class _QuranReaderScreenState extends State<QuranReaderScreen>
           _openTodaysRecitation();
         case SidebarDestination.dailyArrangement:
           _openDailyArrangement();
+        case SidebarDestination.surahList:
+          _openSurahGrid();
+        case SidebarDestination.paraList:
+          _openParaGrid();
         case SidebarDestination.manzil:
           _openVerseCollectionById(VerseCollectionIds.manzil);
         case SidebarDestination.search:
@@ -842,6 +842,27 @@ class _QuranReaderScreenState extends State<QuranReaderScreen>
     }
   }
 
+  void _openSurahGrid() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => SurahGridScreen(
+          indexBookmarkStore: widget.indexBookmarkStore,
+          pinnedSurahStore: widget.pinnedSurahStore,
+        ),
+      ),
+    );
+  }
+
+  void _openParaGrid() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ParaGridScreen(
+          indexBookmarkStore: widget.indexBookmarkStore,
+        ),
+      ),
+    );
+  }
+
   Future<void> _openSearch() async {
     final picked = await Navigator.of(context).push<({int surah, int ayah})>(
       MaterialPageRoute(builder: (_) => const SurahSearchScreen()),
@@ -852,13 +873,21 @@ class _QuranReaderScreenState extends State<QuranReaderScreen>
   }
 
   Future<void> _openBookmarks() async {
-    final picked = await Navigator.of(context).push<({int surah, int ayah})>(
+    final picked = await Navigator.of(context).push<BookmarkJump>(
       MaterialPageRoute(
-        builder: (_) => BookmarksScreen(bookmarkStore: widget.bookmarkStore),
+        builder: (_) => BookmarksScreen(
+          bookmarkStore: widget.bookmarkStore,
+          indexBookmarkStore: widget.indexBookmarkStore,
+          pinnedSurahStore: widget.pinnedSurahStore,
+        ),
       ),
     );
     if (!mounted || picked == null) return;
-    _jumpToAyahFromNav(picked.surah, picked.ayah);
+    if (picked.openAtSurahHeader) {
+      _jumpToSurahFromNav(picked.surah);
+    } else {
+      _jumpToAyahFromNav(picked.surah, picked.ayah);
+    }
   }
 
   Future<void> _openProfiles() async {
@@ -1144,26 +1173,33 @@ class _QuranReaderScreenState extends State<QuranReaderScreen>
             error: widget.controller.error,
             onRetry: widget.controller.initialize,
           ),
-          QuranLoadState.ready => _ReaderList(
-            controller: widget.controller,
-            bismillah: widget.controller.bismillah,
-            initialScrollIndex: widget.controller.initialScrollIndex,
-            itemScrollController: _itemScrollController,
-            itemPositionsListener: _itemPositionsListener,
-            inkColor: theme.colorScheme.onSurface,
+          QuranLoadState.ready => MushafPinchZoom(
+            key: _mushafPinchKey,
             fontSize: widget.settings.fontSize,
-            tajweedEnabled: widget.settings.tajweedEnabled,
-            showTranslation: !widget.settings.hideTranslation,
-            selectedTranslatorIds: _translationsReady
-                ? _loadedTranslatorIds
-                : const <String>[],
-            translationTextAt: _translationsReady
-                ? _translations.textAt
-                : null,
-            onScrollEnd: _onMushafScrollEnd,
-            onScrollDelta: _onMushafScrollDelta,
-            onAyahTap: _onAyahTapped,
-            playingAyah: _playingAyah,
+            onPinchStarted: _onMushafPinchStarted,
+            onPinchEnded: _onMushafPinchEnded,
+            onFontSizeChanged: _onMushafPinchFontSize,
+            child: _ReaderList(
+              controller: widget.controller,
+              bismillah: widget.controller.bismillah,
+              initialScrollIndex: widget.controller.initialScrollIndex,
+              itemScrollController: _itemScrollController,
+              itemPositionsListener: _itemPositionsListener,
+              inkColor: theme.colorScheme.onSurface,
+              fontSize: widget.settings.fontSize,
+              tajweedEnabled: widget.settings.tajweedEnabled,
+              showTranslation: !widget.settings.hideTranslation,
+              selectedTranslatorIds: _translationsReady
+                  ? _loadedTranslatorIds
+                  : const <String>[],
+              translationTextAt: _translationsReady
+                  ? _translations.textAt
+                  : null,
+              onScrollEnd: _onMushafScrollEnd,
+              onScrollDelta: _onMushafScrollDelta,
+              onAyahTap: _onAyahTapped,
+              playingAyah: _playingAyah,
+            ),
           ),
         };
 
@@ -1175,8 +1211,6 @@ class _QuranReaderScreenState extends State<QuranReaderScreen>
                   settings: widget.settings,
                   activeProfileName:
                       widget.profiles.activeProfile?.name ?? 'Profile',
-                  onSurahSelected: _onSurahSelectedFromSidebar,
-                  onAyahSelected: _onAyahSelectedFromSidebar,
                   onDestination: _onSidebarDestination,
                 )
               : null,
@@ -1277,7 +1311,6 @@ class _QuranReaderScreenState extends State<QuranReaderScreen>
                 Positioned.fill(
                   child: PlayingAyahBarHost(
                     followDetached: _followDetached,
-                    transportVisible: _bottomBarVisible,
                     transportHeight: _ReaderBottomBar.contentHeight,
                   ),
                 ),
@@ -1311,9 +1344,70 @@ class _QuranReaderScreenState extends State<QuranReaderScreen>
     );
   }
 
+  void _onMushafPinchStarted(Offset localFocal) {
+    _pinchActive = true;
+    final box =
+        _mushafPinchKey.currentContext?.findRenderObject() as RenderBox?;
+    final height = box?.size.height ?? 1.0;
+    final frac = (localFocal.dy / height).clamp(0.0, 1.0);
+    final positions = _itemPositionsListener.itemPositions.value;
+
+    ItemPosition? hit;
+    for (final position in positions) {
+      if (position.itemLeadingEdge <= frac &&
+          position.itemTrailingEdge > frac) {
+        hit = position;
+        break;
+      }
+    }
+    hit ??= () {
+      ItemPosition? top;
+      for (final position in positions) {
+        if (position.itemTrailingEdge <= 0) continue;
+        if (position.itemLeadingEdge >= 1) continue;
+        if (top == null ||
+            position.itemLeadingEdge < top.itemLeadingEdge) {
+          top = position;
+        }
+      }
+      return top;
+    }();
+
+    if (hit == null) {
+      _pinchAnchorIndex = null;
+      _pinchAnchorAlignment = null;
+      return;
+    }
+    _pinchAnchorIndex = hit.index;
+    _pinchAnchorAlignment = hit.itemLeadingEdge.clamp(0.0, 0.9);
+  }
+
+  void _onMushafPinchFontSize(double size) {
+    widget.settings.setFontSize(size);
+    _restorePinchAnchor();
+  }
+
+  void _onMushafPinchEnded() {
+    _restorePinchAnchor();
+    _pinchActive = false;
+    _pinchAnchorIndex = null;
+    _pinchAnchorAlignment = null;
+  }
+
+  void _restorePinchAnchor() {
+    final index = _pinchAnchorIndex;
+    final alignment = _pinchAnchorAlignment;
+    if (index == null || alignment == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_itemScrollController.isAttached) return;
+      if (index < 0 || index >= MushafLayout.itemCount) return;
+      _itemScrollController.jumpTo(index: index, alignment: alignment);
+    });
+  }
+
   /// Tracks scroll direction for ahead-of-viewport shaping. Transport stays put.
   void _onMushafScrollDelta(double delta) {
-    if (_isSnapping || _isRestoringOrientation) return;
+    if (_isSnapping || _isRestoringOrientation || _pinchActive) return;
     widget.controller.setScrollActive(true);
     PreparedLineCache.deferMisses = true;
     if (delta > 2.5) {
@@ -1334,8 +1428,8 @@ class _QuranReaderScreenState extends State<QuranReaderScreen>
     });
   }
 
-  /// Shapes the nearest uncached ayah in the scroll direction, off the
-  /// scroll build, so the next frames paint ready outlines.
+  /// Queues HarfBuzz for several uncached ayahs ahead of the viewport (off
+  /// the scroll build) so a fast fling still has outlines ready to paint.
   void _warmAyahAhead() {
     final fontPath = KfgqpcFontScope.maybeOf(context);
     if (fontPath == null || peekJustificationShaper(fontPath) == null) return;
@@ -1349,7 +1443,11 @@ class _QuranReaderScreenState extends State<QuranReaderScreen>
     );
     final dpr = MediaQuery.devicePixelRatioOf(context);
     final fontSize = widget.settings.fontSize;
-    for (var step = 1; step <= 16; step++) {
+    // Look farther and enqueue multiple ayahs per frame (was: 16 / stop at 1).
+    const maxSteps = 40;
+    const maxAyahsPerFrame = 4;
+    var queuedAyahs = 0;
+    for (var step = 1; step <= maxSteps; step++) {
       final index = top + direction * step;
       if (index < 0 || index >= MushafLayout.itemCount) return;
       final slot = MushafLayout.slotAt(index);
@@ -1371,7 +1469,9 @@ class _QuranReaderScreenState extends State<QuranReaderScreen>
             MushafDivisions.cached?.isQuarterEnd(slot.surah, slot.ayah) ??
             false,
       );
-      if (queued) return;
+      if (!queued) continue;
+      queuedAyahs++;
+      if (queuedAyahs >= maxAyahsPerFrame) return;
     }
   }
 
@@ -1793,6 +1893,9 @@ class _ReaderList extends StatelessWidget {
           child: ScrollablePositionedList.builder(
             itemScrollController: itemScrollController,
             itemPositionsListener: itemPositionsListener,
+            physics: MushafPinchLock.of(context)
+                ? const NeverScrollableScrollPhysics()
+                : null,
             initialScrollIndex: initialScrollIndex.clamp(
               0,
               MushafLayout.itemCount - 1,

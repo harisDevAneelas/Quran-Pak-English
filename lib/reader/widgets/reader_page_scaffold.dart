@@ -52,8 +52,6 @@ class _ReaderPageScaffoldState extends State<ReaderPageScaffold> {
           : ReaderMenuDrawer(
               settings: nav.settings,
               activeProfileName: nav.profileName,
-              onSurahSelected: nav.nav.jumpToSurah,
-              onAyahSelected: nav.nav.jumpToAyah,
               onDestination: (destination) {
                 _scaffoldKey.currentState?.closeDrawer();
                 nav.nav.openDestination(destination);

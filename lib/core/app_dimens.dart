@@ -53,6 +53,18 @@ abstract final class AppDimens {
   static const double hubTilePadH = 10;
   static const double hubTilePadV = 8;
 
+  // --- Surah / para index grids ---
+  static const double indexGap = 12;
+  static const double indexPadH = 14;
+  static const double indexPadV = 12;
+  static const double indexTileMinHeight = 88;
+  static const double indexTileRadius = 14;
+  static const double indexBadgeSize = 32;
+  static const double indexStarSize = 22;
+  static const double indexStarTap = 36;
+  static const double fontIndexTitle = 20;
+  static const double fontIndexBadge = 14;
+
   // --- Ayah actions ---
   static const double actionCircle = 76;
   static const double actionCircleFloor = 0.88;
@@ -102,6 +114,15 @@ abstract final class AppDimens {
   
   static double hubTileWidthOf(double maxWidth) =>
       (maxWidth - hubPadH * 2 - hubGap) / 2;
+
+  static double indexTileWidthOf(double maxWidth) =>
+      (maxWidth - indexPadH * 2 - indexGap) / 2;
+
+  static double indexTileMinHeightOf(BuildContext context) {
+    final textScale =
+        MediaQuery.textScalerOf(context).scale(1.0).clamp(1.0, 1.35);
+    return indexTileMinHeight * scaleOf(context) * textScale;
+  }
 
   static double actionCircleOf(BuildContext context) =>
       actionCircle * scaleOf(context).clamp(actionCircleFloor, 1.0);

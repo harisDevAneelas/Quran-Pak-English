@@ -1,11 +1,11 @@
 {
-    "name": "Quran Pak",
-    "short_name": "Quran Pak",
+    "name": "Quran with English",
+    "short_name": "Quran with English",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#D66A10",
-    "theme_color": "#D66A10",
-    "description": "Quran Pak",
+    "background_color": "#E6500A",
+    "theme_color": "#E6500A",
+    "description": "Quran with English",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
