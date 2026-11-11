@@ -10,7 +10,7 @@ PODS:
   - flutter_local_notifications (0.0.1):
     - Flutter
   - flutter_timezone (0.0.1):
-    - Flutter 
+    - Flutter
   - geolocator_apple (1.2.0):
     - Flutter
     - FlutterMacOS

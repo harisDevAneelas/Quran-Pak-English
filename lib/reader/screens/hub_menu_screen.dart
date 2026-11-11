@@ -208,7 +208,7 @@ class _HubMenuScreenState extends State<HubMenuScreen> {
 
     return [
       _HubTile(label: 'Surah list', onTap: _openSurahGrid),
-      _HubTile(label: 'Para list', onTap: _openParaGrid),
+      _HubTile(label: 'Juz list', onTap: _openParaGrid),
       _HubTile(
         label: "Today's recitation",
         highlighted: true,

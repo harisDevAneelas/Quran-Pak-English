@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../core/app_dimens.dart';
+import '../../core/quran_font.dart';
 import '../../data/quran_metadata.dart';
 import '../index_bookmark_store.dart';
 import '../reader_nav_scope.dart';
@@ -131,6 +132,13 @@ class _ParaGridScreenState extends State<ParaGridScreen> {
     await widget.indexBookmarkStore.setParaBookmarked(para, next);
   }
 
+  /// Arabic opening from `Juz.UrduName`. Phonetic English only if that is empty.
+  String _paraTitle(JuzMeta para) {
+    final arabic = para.nameUr.trim();
+    if (arabic.isNotEmpty) return arabic;
+    return para.displayName;
+  }
+
   Map<int, String> _bookmarkLabels() {
     final out = <int, String>{};
     for (final id in _starred) {
@@ -141,7 +149,7 @@ class _ParaGridScreenState extends State<ParaGridScreen> {
           break;
         }
       }
-      final name = meta?.displayName ?? '';
+      final name = meta == null ? '' : _paraTitle(meta);
       out[id] = name.isEmpty ? 'Para $id' : 'Para $id · $name';
     }
     return out;
@@ -166,7 +174,7 @@ class _ParaGridScreenState extends State<ParaGridScreen> {
         isDark ? const Color(0xFF1C2420) : const Color(0xFFF7F3EE);
 
     return ReaderPageScaffold(
-      title: 'Para list',
+      title: 'Juz list',
       body: Column(
         children: [
           Padding(
@@ -235,10 +243,14 @@ class _ParaGridScreenState extends State<ParaGridScreen> {
       itemCount: _filtered.length,
       itemBuilder: (context, index) {
         final para = _filtered[index];
+        final arabic = para.nameUr.trim().isNotEmpty;
         return IndexGridCard(
           fill: tileFill,
           badge: '${para.juz}',
-          title: para.displayName,
+          title: _paraTitle(para),
+          titleFontFamily: arabic ? QuranFont.family : null,
+          titleFontFamilyFallback: arabic ? const <String>[] : null,
+          titleHeight: arabic ? QuranFont.recommendedLineHeight : 1.2,
           ink: ink,
           onTap: () => _openPara(para),
           starred: _starred.contains(para.juz),

@@ -165,7 +165,7 @@ class _ReaderMenuDrawerState extends State<ReaderMenuDrawer> {
                         ),
                         const _Separator(),
                         _MenuButton(
-                          title: 'Para list',
+                          title: 'Juz list',
                           icon: _sidebarIcon(Icons.library_books_outlined),
                           onTap: () => widget.onDestination(
                             SidebarDestination.paraList,

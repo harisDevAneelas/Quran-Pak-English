@@ -14,6 +14,9 @@ class IndexGridCard extends StatelessWidget {
     required this.onTap,
     this.starred = false,
     this.onStarTap,
+    this.titleFontFamily,
+    this.titleFontFamilyFallback,
+    this.titleHeight = 1.2,
   });
 
   final Color fill;
@@ -23,6 +26,11 @@ class IndexGridCard extends StatelessWidget {
   final VoidCallback onTap;
   final bool starred;
   final VoidCallback? onStarTap;
+
+  /// When null, the title uses the theme font (surah grid).
+  final String? titleFontFamily;
+  final List<String>? titleFontFamilyFallback;
+  final double titleHeight;
 
   @override
   Widget build(BuildContext context) {
@@ -75,12 +83,14 @@ class IndexGridCard extends StatelessWidget {
                       final maxHeight = constraints.maxHeight.isFinite &&
                               constraints.maxHeight > 0
                           ? constraints.maxHeight
-                          : titleSize * 1.2 * maxLines;
+                          : titleSize * titleHeight * maxLines;
                       final style = TextStyle(
                         color: ink,
                         fontSize: titleSize,
                         fontWeight: FontWeight.w400,
-                        height: 1.2,
+                        height: titleHeight,
+                        fontFamily: titleFontFamily,
+                        fontFamilyFallback: titleFontFamilyFallback,
                       );
                       final size = AppDimens.fontSizeFor(
                         text: title,
