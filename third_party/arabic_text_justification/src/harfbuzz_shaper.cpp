@@ -194,18 +194,25 @@ void hbq_free_shape(HBQShapeResult* result) {
     }
 }
 
-// --- Outline extraction (font units, FT_LOAD_NO_SCALE) ---
+// --- Outline extraction (font units) ---
+//
+// DigitalKhattV2 is CFF2. FreeType's FT_LOAD_NO_SCALE path is unreliable for
+// CFF/CFF2 (mark glyphs / GPOS attachment look detached on web). Load at UPEM
+// without NO_SCALE and convert 26.6 fixed → font units (/64).
 
 namespace {
 struct OutlineData {
     std::vector<PathCommand> commands;
+    float scale; // 1 for FT_LOAD_NO_SCALE; 1/64 when loaded at UPEM char size
 };
+
+static float _ou(OutlineData* d, FT_Pos v) { return (float)v * d->scale; }
 
 int move_to(const FT_Vector* to, void* user) {
     auto* d = (OutlineData*)user;
     PathCommand c = {};
     c.type = PATH_MOVE_TO;
-    c.x = (float)to->x; c.y = (float)to->y;
+    c.x = _ou(d, to->x); c.y = _ou(d, to->y);
     d->commands.push_back(c);
     return 0;
 }
@@ -213,7 +220,7 @@ int line_to(const FT_Vector* to, void* user) {
     auto* d = (OutlineData*)user;
     PathCommand c = {};
     c.type = PATH_LINE_TO;
-    c.x = (float)to->x; c.y = (float)to->y;
+    c.x = _ou(d, to->x); c.y = _ou(d, to->y);
     d->commands.push_back(c);
     return 0;
 }
@@ -221,8 +228,8 @@ int conic_to(const FT_Vector* ctrl, const FT_Vector* to, void* user) {
     auto* d = (OutlineData*)user;
     PathCommand c = {};
     c.type = PATH_QUAD_TO;
-    c.x1 = (float)ctrl->x; c.y1 = (float)ctrl->y;
-    c.x = (float)to->x; c.y = (float)to->y;
+    c.x1 = _ou(d, ctrl->x); c.y1 = _ou(d, ctrl->y);
+    c.x = _ou(d, to->x); c.y = _ou(d, to->y);
     d->commands.push_back(c);
     return 0;
 }
@@ -230,9 +237,9 @@ int cubic_to(const FT_Vector* c1, const FT_Vector* c2, const FT_Vector* to, void
     auto* d = (OutlineData*)user;
     PathCommand c = {};
     c.type = PATH_CUBIC_TO;
-    c.x1 = (float)c1->x; c.y1 = (float)c1->y;
-    c.x2 = (float)c2->x; c.y2 = (float)c2->y;
-    c.x = (float)to->x; c.y = (float)to->y;
+    c.x1 = _ou(d, c1->x); c.y1 = _ou(d, c1->y);
+    c.x2 = _ou(d, c2->x); c.y2 = _ou(d, c2->y);
+    c.x = _ou(d, to->x); c.y = _ou(d, to->y);
     d->commands.push_back(c);
     return 0;
 }
@@ -245,10 +252,22 @@ HBQOutline* hbq_glyph_outline(HBQFont* font, int glyph_id) {
     r->commands = nullptr;
     r->command_count = 0;
 
-    if (FT_Load_Glyph(font->ft_face, (FT_UInt)glyph_id,
-                      FT_LOAD_NO_SCALE | FT_LOAD_NO_BITMAP) != 0 ||
+    // Prefer UPEM-sized load (works for TTF and CFF2). Fall back to NO_SCALE.
+    float outline_scale = 1.0f / 64.0f;
+    FT_Error err = FT_Set_Char_Size(
+        font->ft_face, 0, (FT_F26Dot6)(font->upem * 64), 72, 72);
+    if (err == 0) {
+        err = FT_Load_Glyph(font->ft_face, (FT_UInt)glyph_id,
+                            FT_LOAD_NO_BITMAP | FT_LOAD_NO_HINTING);
+    }
+    if (err != 0 ||
         font->ft_face->glyph->format != FT_GLYPH_FORMAT_OUTLINE) {
-        return r;
+        outline_scale = 1.0f;
+        if (FT_Load_Glyph(font->ft_face, (FT_UInt)glyph_id,
+                          FT_LOAD_NO_SCALE | FT_LOAD_NO_BITMAP) != 0 ||
+            font->ft_face->glyph->format != FT_GLYPH_FORMAT_OUTLINE) {
+            return r;
+        }
     }
 
     FT_Outline_Funcs funcs = {};
@@ -258,6 +277,7 @@ HBQOutline* hbq_glyph_outline(HBQFont* font, int glyph_id) {
     funcs.cubic_to = cubic_to;
 
     OutlineData data;
+    data.scale = outline_scale;
     FT_Outline_Decompose(&font->ft_face->glyph->outline, &funcs, &data);
 
     int n = (int)data.commands.size();

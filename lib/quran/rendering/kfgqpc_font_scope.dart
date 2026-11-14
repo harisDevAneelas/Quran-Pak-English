@@ -1,15 +1,22 @@
 import 'package:arabic_text_justification/arabic_text_justification.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/mushaf_script.dart';
+import '../../core/quran_font.dart';
 import 'kfgqpc_font_path.dart';
 
-/// Provides the filesystem / asset key for KFGQPC Nastaleeq used by HB widgets.
+/// Provides the active mushaf HarfBuzz path + Flutter font family.
 ///
-/// Resolves the font path and warms the HarfBuzz shaper once before the reader
-/// appears, so scroll builds do not pay a cold-load empty frame.
+/// Both faces are resolved and warmed once; changing [script] only switches
+/// which cached path is inherited (no asset reload).
 class KfgqpcFontScope extends StatefulWidget {
-  const KfgqpcFontScope({super.key, required this.child});
+  const KfgqpcFontScope({
+    super.key,
+    required this.script,
+    required this.child,
+  });
 
+  final MushafScript script;
   final Widget child;
 
   static String? maybeOf(BuildContext context) {
@@ -24,32 +31,61 @@ class KfgqpcFontScope extends StatefulWidget {
     return path!;
   }
 
+  /// Always the KFGQPC / Nastaleeq shaper path (for circled ayah digits).
+  static String nastaleeqPathOf(BuildContext context) {
+    final path = context
+        .dependOnInheritedWidgetOfExactType<_KfgqpcFontInherited>()
+        ?.nastaleeqFontPath;
+    assert(path != null, 'KfgqpcFontScope not found');
+    return path!;
+  }
+
+  static MushafScript scriptOf(BuildContext context) {
+    final script = context
+        .dependOnInheritedWidgetOfExactType<_KfgqpcFontInherited>()
+        ?.script;
+    assert(script != null, 'KfgqpcFontScope not found');
+    return script!;
+  }
+
+  static String familyOf(BuildContext context) {
+    final family = maybeFamilyOf(context);
+    assert(family != null, 'KfgqpcFontScope not found');
+    return family!;
+  }
+
+  static String? maybeFamilyOf(BuildContext context) {
+    return context
+        .dependOnInheritedWidgetOfExactType<_KfgqpcFontInherited>()
+        ?.fontFamily;
+  }
+
   @override
   State<KfgqpcFontScope> createState() => _KfgqpcFontScopeState();
 }
 
 class _KfgqpcFontScopeState extends State<KfgqpcFontScope> {
-  late final Future<String> _future = _resolveAndWarm();
+  late final Future<Map<MushafScript, String>> _future = _resolveAndWarmAll();
 
-  static Future<String> _resolveAndWarm() async {
-    final path = await KfgqpcFontPath.resolve();
-    // Warm in the background — do not block the reader behind FFI load.
-    // peekJustificationShaper will pick it up once ready.
-    warmJustificationShaper(path).then(
-      (_) {},
-      onError: (Object e, StackTrace st) {
-        assert(() {
-          debugPrint('Shaper warm failed (will retry on first line): $e\n$st');
-          return true;
-        }());
-      },
-    );
-    return path;
+  static Future<Map<MushafScript, String>> _resolveAndWarmAll() async {
+    final paths = await KfgqpcFontPath.resolveAll();
+    for (final path in paths.values) {
+      warmJustificationShaper(path).then(
+        (_) {},
+        onError: (Object e, StackTrace st) {
+          assert(() {
+            debugPrint('Shaper warm failed (will retry on first line): $e\n$st');
+            return true;
+          }());
+        },
+      );
+    }
+    return paths;
   }
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<String>(
+    return FutureBuilder<Map<MushafScript, String>>(
       future: _future,
       builder: (context, snap) {
         if (snap.hasError) {
@@ -83,18 +119,37 @@ class _KfgqpcFontScopeState extends State<KfgqpcFontScope> {
             ),
           );
         }
-        return _KfgqpcFontInherited(fontPath: snap.data!, child: widget.child);
+        final paths = snap.data!;
+        return _KfgqpcFontInherited(
+          script: widget.script,
+          fontPath: paths[widget.script]!,
+          nastaleeqFontPath: paths[MushafScript.indopak]!,
+          fontFamily: QuranFont.familyFor(widget.script),
+          child: widget.child,
+        );
       },
     );
   }
 }
 
 class _KfgqpcFontInherited extends InheritedWidget {
-  const _KfgqpcFontInherited({required this.fontPath, required super.child});
+  const _KfgqpcFontInherited({
+    required this.script,
+    required this.fontPath,
+    required this.nastaleeqFontPath,
+    required this.fontFamily,
+    required super.child,
+  });
 
+  final MushafScript script;
   final String fontPath;
+  final String nastaleeqFontPath;
+  final String fontFamily;
 
   @override
   bool updateShouldNotify(_KfgqpcFontInherited oldWidget) =>
-      fontPath != oldWidget.fontPath;
+      script != oldWidget.script ||
+      fontPath != oldWidget.fontPath ||
+      nastaleeqFontPath != oldWidget.nastaleeqFontPath ||
+      fontFamily != oldWidget.fontFamily;
 }

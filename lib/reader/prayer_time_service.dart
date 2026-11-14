@@ -325,7 +325,6 @@ class PrayerTimeService extends ChangeNotifier {
     final c = _coords;
     if (c == null) return null;
     final params = _method.getParameters();
-    // `madhab` is the adhan package field name; app language is فقہ.
     params.madhab = _fiqah;
     final components = DateComponents.from(day);
     final times = PrayerTimes(c, components, params);

@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:flutter/services.dart';
 
+import '../core/mushaf_script.dart';
 import '../core/surah_ayah_counts.dart';
 import 'db_ayah.dart';
 import 'quran_database.dart';
@@ -14,14 +15,37 @@ class QuranMetadata {
   const QuranMetadata({
     required this.surahs,
     required this.juz,
-    required this.bismillahWords,
+    required this.bismillahIndopak,
+    required this.bismillahUthmani,
+    this.paraNames = const {},
   });
 
   final List<SurahMeta> surahs;
   final List<JuzMeta> juz;
 
-  /// Plain bismillah words (no Tajweed) for Surah headers.
-  final List<String> bismillahWords;
+  /// Plain IndoPak header words (no Tajweed).
+  final List<String> bismillahIndopak;
+
+  /// Plain Uthmani header words (no Tajweed).
+  final List<String> bismillahUthmani;
+
+  /// Arabic/Urdu para openings from `quran.metadata.json` (`para[].name`).
+  final Map<int, String> paraNames;
+
+  /// Header words for [script].
+  List<String> bismillahWordsFor(MushafScript script) => switch (script) {
+        MushafScript.indopak => bismillahIndopak,
+        MushafScript.uthmani => bismillahUthmani,
+      };
+
+  /// Display title for a para (metadata Arabic first).
+  String paraNameOrEmpty(int para) {
+    final fromMeta = paraNames[para]?.trim() ?? '';
+    if (fromMeta.isNotEmpty) return fromMeta;
+    final j = juzAt(para);
+    if (j == null) return '';
+    return j.displayName;
+  }
 
   static const assetPath = 'assets/data/quran.metadata.json';
 
@@ -48,15 +72,35 @@ class QuranMetadata {
 
   factory QuranMetadata.fromJson(Map<String, dynamic> json) {
     final bismi = json['bismillah'] as Map<String, dynamic>? ?? const {};
-    final words = (bismi['words'] as List<dynamic>? ?? const [])
-        .map((e) => (e as Map<String, dynamic>)['text'] as String)
-        .toList(growable: false);
-
     return QuranMetadata(
       surahs: const [],
       juz: const [],
-      bismillahWords: words,
+      bismillahIndopak: _bismillahWordsFrom(bismi['indopak']),
+      bismillahUthmani: _bismillahWordsFrom(bismi['uthmani']),
+      paraNames: _paraNamesFrom(json['para']),
     );
+  }
+
+  static Map<int, String> _paraNamesFrom(Object? node) {
+    if (node is! List) return const {};
+    final out = <int, String>{};
+    for (final e in node) {
+      if (e is! Map) continue;
+      final para = (e['para'] as num?)?.toInt();
+      final name = e['name']?.toString().trim() ?? '';
+      if (para == null || para < 1 || name.isEmpty) continue;
+      out[para] = name;
+    }
+    return Map<int, String>.unmodifiable(out);
+  }
+
+  static List<String> _bismillahWordsFrom(Object? node) {
+    if (node is! Map) return const [];
+    final words = node['words'] as List<dynamic>? ?? const [];
+    return [
+      for (final e in words)
+        if (e is Map<String, dynamic>) (e['text'] as String?) ?? '',
+    ].where((t) => t.isNotEmpty).toList(growable: false);
   }
 
   JuzMeta? juzAt(int juzNum) {
@@ -83,15 +127,22 @@ class QuranMetadata {
       surahs: [
         for (final row in surahRows) SurahMeta.fromSuraRow(row),
       ],
-      juz: parasFromRows(juzRows: juzRows, ayahRows: ayahRows),
-      bismillahWords: bismillahWords,
+      juz: parasFromRows(
+        juzRows: juzRows,
+        ayahRows: ayahRows,
+        paraNames: paraNames,
+      ),
+      bismillahIndopak: bismillahIndopak,
+      bismillahUthmani: bismillahUthmani,
+      paraNames: paraNames,
     );
   }
 
-  /// Para list from `Juz` names and `Quran.ParaStart` / `PageNum1`.
+  /// Para list from `Quran.ParaStart` / `PageNum1`; titles from metadata.
   static List<JuzMeta> parasFromRows({
     required List<Map<String, Object?>> juzRows,
     required List<Map<String, Object?>> ayahRows,
+    Map<int, String> paraNames = const {},
   }) {
     final spans = <int, _ParaSpan>{};
     for (final row in ayahRows) {
@@ -121,7 +172,10 @@ class QuranMetadata {
           span.endAyah == null) {
         continue;
       }
-      final nameUr = row['UrduName']?.toString() ?? '';
+      final dbUr = row['UrduName']?.toString() ?? '';
+      final nameUr = paraNames[juz]?.trim().isNotEmpty == true
+          ? paraNames[juz]!.trim()
+          : dbUr;
       final nameAr = row['ArabicName']?.toString() ?? '';
       final nameEn = row['EngName']?.toString() ?? '';
       paras.add(
@@ -170,8 +224,10 @@ class QuranMetadata {
   }
 
   /// Safe joined bismillah text after [load]; empty if not ready.
-  static String bismillahTextOrEmpty() {
-    final words = _cache?.bismillahWords;
+  static String bismillahTextOrEmpty({
+    MushafScript script = MushafScript.indopak,
+  }) {
+    final words = _cache?.bismillahWordsFor(script);
     if (words == null || words.isEmpty) return '';
     return words.join(' ');
   }
@@ -403,12 +459,11 @@ class JuzMeta {
     return n > 3 ? 3 : n;
   }
 
-  /// Preferred sidebar / list title. English para names, then Arabic, then
-  /// the short opening label used only for the painted word count.
+  /// Preferred list / about title. `Juz.UrduName` first, then Arabic, then Eng.
   String get displayName {
-    if (nameEn.isNotEmpty) return nameEn;
-    if (nameAr.isNotEmpty) return nameAr;
     if (nameUr.isNotEmpty) return nameUr;
+    if (nameAr.isNotEmpty) return nameAr;
+    if (nameEn.isNotEmpty) return nameEn;
     return 'Para $juz';
   }
 

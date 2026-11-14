@@ -116,7 +116,7 @@ class ArabicOutlinePainter extends CustomPainter {
     final scaleMarkers =
         markers != null && markers.isNotEmpty && markerScale != 1.0;
 
-    // Pass 1: every non-hidden glyph in its base color.
+    // Pass 1: every non-hidden glyph as a plain fill (ink or Tajweed span).
     canvas.save();
     canvas.translate(offsetX, offsetY);
     canvas.scale(scaleX, scaleY);

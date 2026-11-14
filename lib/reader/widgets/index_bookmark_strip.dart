@@ -24,7 +24,6 @@ class IndexBookmarkStrip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (labels.isEmpty) return const SizedBox.shrink();
-    // Preserve insertion order from [labels] (mark order, not number).
     final ids = labels.keys.toList(growable: false);
 
     return Padding(

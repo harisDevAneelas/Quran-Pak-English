@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../../core/app_theme.dart';
 import '../../data/azaan_catalog.dart';
 import '../widgets/option_preview_player.dart';
-import '../widgets/orange_app_bar.dart';
 import '../widgets/reader_page_scaffold.dart';
 
 /// Azaan voice picker with per-row preview. Pops with the chosen id.
@@ -55,21 +54,10 @@ class _AzaanListScreenState extends State<AzaanListScreen> {
       canPop: false,
       onPopInvokedWithResult: (didPop, result) {
         if (didPop) return;
-        Navigator.of(context).pop(_selectedId);
+        _done();
       },
       child: ReaderPageScaffold(
         title: 'Choose azaan',
-        showDrawer: false,
-        leadingWidth: 88,
-        leading: Padding(
-          padding: const EdgeInsetsDirectional.only(start: 8),
-          child: Center(
-            child: GoldDoneButton(
-              onPressed: _done,
-              label: 'Save',
-            ),
-          ),
-        ),
         body: Directionality(
           textDirection: TextDirection.ltr,
           child: ListView.separated(

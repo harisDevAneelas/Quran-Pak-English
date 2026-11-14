@@ -93,7 +93,6 @@ class _NamazTimeBarState extends State<NamazTimeBar> {
         return;
       }
       if (next != null) {
-        // e.g. after sunrise until ظہر — no current fard window.
         _error = null;
         _name = next.name;
         _end = null;

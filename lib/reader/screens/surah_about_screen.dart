@@ -27,7 +27,6 @@ class SurahAboutScreen extends StatelessWidget {
           }
           final catalog = snap.data!;
           final meta = catalog.surahs[surah - 1];
-          final juz = meta.juzNum != null ? catalog.juzAt(meta.juzNum!) : null;
           final revelation = meta.revelationLabel;
 
           return Directionality(
@@ -71,18 +70,19 @@ class SurahAboutScreen extends StatelessWidget {
                 ],
                 const SizedBox(height: 28),
                 _FactRow(label: 'Number', value: '${meta.surah}'),
-                _FactRow(label: 'Ayahs', value: '${meta.ayahCount}'),
+                _FactRow(label: 'Ayaat', value: '${meta.ayahCount}'),
                 if (revelation.isNotEmpty)
                   _FactRow(label: 'Revelation', value: revelation),
-                if (meta.juzNum != null)
+                if (meta.juzNum != null) ...[
                   _FactRow(
                     label: 'Para',
-                    value: juz == null
-                        ? '${meta.juzNum}'
-                        : '${meta.juzNum} · ${juz.displayName}',
+                    value: catalog.paraNameOrEmpty(meta.juzNum!).isNotEmpty
+                        ? catalog.paraNameOrEmpty(meta.juzNum!)
+                        : '${meta.juzNum}',
+                    valueDirection: TextDirection.rtl,
                   ),
-                if (meta.pageNum != null)
-                  _FactRow(label: 'Page', value: '${meta.pageNum}'),
+                  _FactRow(label: 'Para', value: '${meta.juzNum}'),
+                ],
                 if (meta.chronologicalOrder != null)
                   _FactRow(
                     label: 'Revelation order',
@@ -146,10 +146,15 @@ class SurahAboutScreen extends StatelessWidget {
 }
 
 class _FactRow extends StatelessWidget {
-  const _FactRow({required this.label, required this.value});
+  const _FactRow({
+    required this.label,
+    required this.value,
+    this.valueDirection = TextDirection.ltr,
+  });
 
   final String label;
   final String value;
+  final TextDirection valueDirection;
 
   @override
   Widget build(BuildContext context) {
@@ -168,8 +173,22 @@ class _FactRow extends StatelessWidget {
           Flexible(
             child: Text(
               value,
-              textAlign: TextAlign.left,
-              style: const TextStyle(fontSize: 18),
+              textAlign: valueDirection == TextDirection.rtl
+                  ? TextAlign.right
+                  : TextAlign.left,
+              textDirection: valueDirection,
+              style: TextStyle(
+                fontSize: 18,
+                height: valueDirection == TextDirection.rtl
+                    ? QuranFont.recommendedLineHeight
+                    : null,
+                fontFamily: valueDirection == TextDirection.rtl
+                    ? QuranFont.digitalKhattFamily
+                    : null,
+                fontFamilyFallback: valueDirection == TextDirection.rtl
+                    ? const <String>[]
+                    : null,
+              ),
             ),
           ),
         ],

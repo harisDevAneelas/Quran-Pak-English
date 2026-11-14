@@ -2,11 +2,13 @@ import 'package:flutter/material.dart';
 
 import '../../core/app_theme.dart';
 import '../../core/quran_font.dart';
+import '../../quran/rendering/kfgqpc_font_scope.dart';
 import 'surah_header_banner.dart';
 
 /// Shared header bismillah at the start of a recitation page.
 ///
-/// Same family as [SurahHeaderBanner]: center wash, orange flourishes, KFGQPC.
+/// Same family as [SurahHeaderBanner]: center wash, orange flourishes,
+/// active mushaf face.
 class RecitationBismillah extends StatelessWidget {
   const RecitationBismillah({
     super.key,
@@ -109,6 +111,8 @@ class RecitationBismillah extends StatelessWidget {
                   applyHeightToLastDescent: false,
                 ),
                 style: QuranFont.base.copyWith(
+                  fontFamily:
+                      KfgqpcFontScope.maybeFamilyOf(context) ?? QuranFont.family,
                   fontSize: (fontSize * 0.55).clamp(18.0, 28.0),
                   color: inkColor,
                   height: QuranFont.recommendedLineHeight,

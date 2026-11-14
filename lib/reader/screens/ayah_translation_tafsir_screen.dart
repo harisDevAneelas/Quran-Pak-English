@@ -84,7 +84,9 @@ class _AyahTranslationTafsirScreenState
   Future<void> _load() async {
     try {
       await QuranMetadata.load();
-      final full = await QuranDataRepository().loadFull();
+      final full = await QuranDataRepository.forScript(
+        widget.settings.mushafScript,
+      ).loadFull();
       final chunk = full.ayahAt(widget.surah, widget.ayah);
       final texts = await _translations.textsForAyah(
         widget.surah,

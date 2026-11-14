@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import '../../core/app_theme.dart';
 import '../../data/reciter_catalog.dart';
 import '../widgets/option_preview_player.dart';
-import '../widgets/orange_app_bar.dart';
 import '../widgets/reader_page_scaffold.dart';
 
 /// Reciter picker with portrait thumbnails. Pops with the chosen English name.
@@ -45,10 +44,6 @@ class _ReciterListScreenState extends State<ReciterListScreen> {
     setState(() => _selectedLabel = name);
   }
 
-  void _done() {
-    Navigator.of(context).pop(_selectedLabel);
-  }
-
   @override
   Widget build(BuildContext context) {
     return PopScope(
@@ -59,17 +54,6 @@ class _ReciterListScreenState extends State<ReciterListScreen> {
       },
       child: ReaderPageScaffold(
         title: 'Choose a reciter',
-        showDrawer: false,
-        leadingWidth: 88,
-        leading: Padding(
-          padding: const EdgeInsetsDirectional.only(start: 8),
-          child: Center(
-            child: GoldDoneButton(
-              onPressed: _done,
-              label: 'Save',
-            ),
-          ),
-        ),
         body: Directionality(
           textDirection: TextDirection.ltr,
           child: ListView.separated(

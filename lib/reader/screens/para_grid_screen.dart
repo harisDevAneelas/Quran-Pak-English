@@ -132,8 +132,9 @@ class _ParaGridScreenState extends State<ParaGridScreen> {
     await widget.indexBookmarkStore.setParaBookmarked(para, next);
   }
 
-  /// Arabic opening from `Juz.UrduName`. Phonetic English only if that is empty.
   String _paraTitle(JuzMeta para) {
+    final fromMeta = QuranMetadata.cached?.paraNameOrEmpty(para.juz) ?? '';
+    if (fromMeta.isNotEmpty) return fromMeta;
     final arabic = para.nameUr.trim();
     if (arabic.isNotEmpty) return arabic;
     return para.displayName;
@@ -226,7 +227,8 @@ class _ParaGridScreenState extends State<ParaGridScreen> {
     required Color ink,
     required Color tileFill,
   }) {
-    final minHeight = AppDimens.indexTileMinHeightOf(context);
+    final tileHeight =
+        AppDimens.indexParaTileHeight * AppDimens.scaleOf(context);
     return GridView.builder(
       padding: const EdgeInsets.fromLTRB(
         AppDimens.indexPadH,
@@ -238,7 +240,7 @@ class _ParaGridScreenState extends State<ParaGridScreen> {
         crossAxisCount: 2,
         crossAxisSpacing: AppDimens.indexGap,
         mainAxisSpacing: AppDimens.indexGap,
-        mainAxisExtent: minHeight,
+        mainAxisExtent: tileHeight,
       ),
       itemCount: _filtered.length,
       itemBuilder: (context, index) {
@@ -248,9 +250,13 @@ class _ParaGridScreenState extends State<ParaGridScreen> {
           fill: tileFill,
           badge: '${para.juz}',
           title: _paraTitle(para),
-          titleFontFamily: arabic ? QuranFont.family : null,
+          titleFontFamily: arabic ? QuranFont.digitalKhattFamily : null,
           titleFontFamilyFallback: arabic ? const <String>[] : null,
           titleHeight: arabic ? QuranFont.recommendedLineHeight : 1.2,
+          titleTextDirection:
+              arabic ? TextDirection.rtl : TextDirection.ltr,
+          fixedTitle: true,
+          fixedTitleSize: AppDimens.fontIndexParaTitle,
           ink: ink,
           onTap: () => _openPara(para),
           starred: _starred.contains(para.juz),

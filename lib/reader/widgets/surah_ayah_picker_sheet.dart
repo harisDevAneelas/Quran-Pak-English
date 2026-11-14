@@ -210,8 +210,6 @@ class _PickerShell extends StatelessWidget {
     final theme = Theme.of(context);
     final top = MediaQuery.paddingOf(context).top;
 
-    // Status bar is transparent app-wide; paint the header under it so the
-    // system icons sit on the same grey as the title bar.
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: const SystemUiOverlayStyle(
         statusBarColor: _pickerBar,

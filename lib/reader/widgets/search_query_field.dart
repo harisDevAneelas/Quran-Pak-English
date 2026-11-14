@@ -89,7 +89,6 @@ class _SearchQueryFieldState extends State<SearchQueryField> {
           )
         : null;
 
-    // Visual left = search, visual right = clear (when typing).
     final prefixIcon = isRtl ? clearButton : searchIcon;
     final suffixIcon = isRtl ? searchIcon : clearButton;
 

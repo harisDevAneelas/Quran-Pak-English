@@ -17,6 +17,9 @@ class IndexGridCard extends StatelessWidget {
     this.titleFontFamily,
     this.titleFontFamilyFallback,
     this.titleHeight = 1.2,
+    this.titleTextDirection = TextDirection.ltr,
+    this.fixedTitle = false,
+    this.fixedTitleSize,
   });
 
   final Color fill;
@@ -27,20 +30,30 @@ class IndexGridCard extends StatelessWidget {
   final bool starred;
   final VoidCallback? onStarTap;
 
-  /// When null, the title uses the theme font (surah grid).
   final String? titleFontFamily;
   final List<String>? titleFontFamilyFallback;
   final double titleHeight;
+  final TextDirection titleTextDirection;
+  final bool fixedTitle;
+  final double? fixedTitleSize;
 
   @override
   Widget build(BuildContext context) {
     final radius = BorderRadius.circular(AppDimens.indexTileRadius);
-    final titleSize = AppDimens.scaled(context, AppDimens.fontIndexTitle);
+    final titleSize = fixedTitle
+        ? (fixedTitleSize ?? AppDimens.fontIndexParaTitle)
+        : AppDimens.scaled(context, AppDimens.fontIndexTitle);
+    final align = titleTextDirection == TextDirection.rtl
+        ? Alignment.centerRight
+        : Alignment.centerLeft;
+    final textAlign = titleTextDirection == TextDirection.rtl
+        ? TextAlign.right
+        : TextAlign.left;
 
     return Material(
       color: fill,
       borderRadius: radius,
-      clipBehavior: Clip.antiAlias,
+      clipBehavior: Clip.hardEdge,
       child: InkWell(
         borderRadius: radius,
         onTap: onTap,
@@ -52,7 +65,7 @@ class IndexGridCard extends StatelessWidget {
             ),
           ),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
@@ -76,53 +89,78 @@ class IndexGridCard extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 Expanded(
-                  // Shrink / wrap until the full title fits — never ellipsize.
-                  child: LayoutBuilder(
-                    builder: (context, constraints) {
-                      const maxLines = 3;
-                      final maxHeight = constraints.maxHeight.isFinite &&
-                              constraints.maxHeight > 0
-                          ? constraints.maxHeight
-                          : titleSize * titleHeight * maxLines;
-                      final style = TextStyle(
-                        color: ink,
-                        fontSize: titleSize,
-                        fontWeight: FontWeight.w400,
-                        height: titleHeight,
-                        fontFamily: titleFontFamily,
-                        fontFamilyFallback: titleFontFamilyFallback,
-                      );
-                      final size = AppDimens.fontSizeFor(
-                        text: title,
-                        style: style,
-                        maxWidth: constraints.maxWidth,
-                        maxHeight: maxHeight,
-                        maxLines: maxLines,
-                        minFontSize: 8,
-                        textAlign: TextAlign.left,
-                        textDirection: TextDirection.ltr,
-                      );
-                      return FittedBox(
-                        fit: BoxFit.scaleDown,
-                        alignment: Alignment.centerLeft,
-                        child: ConstrainedBox(
-                          constraints: BoxConstraints(
-                            maxWidth: constraints.maxWidth,
+                  child: fixedTitle
+                      ? Align(
+                          alignment: align,
+                          child: FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: align,
+                            child: Text(
+                              title,
+                              maxLines: 1,
+                              softWrap: false,
+                              overflow: TextOverflow.visible,
+                              textAlign: textAlign,
+                              textDirection: titleTextDirection,
+                              textScaler: TextScaler.noScaling,
+                              style: TextStyle(
+                                color: ink,
+                                fontSize: titleSize,
+                                fontWeight: FontWeight.w500,
+                                height: titleHeight,
+                                fontFamily: titleFontFamily,
+                                fontFamilyFallback: titleFontFamilyFallback,
+                              ),
+                            ),
                           ),
-                          child: Text(
-                            title,
-                            maxLines: maxLines,
-                            softWrap: true,
-                            overflow: TextOverflow.visible,
-                            textAlign: TextAlign.left,
-                            textDirection: TextDirection.ltr,
-                            textScaler: TextScaler.noScaling,
-                            style: style.copyWith(fontSize: size),
-                          ),
+                        )
+                      : LayoutBuilder(
+                          builder: (context, constraints) {
+                            const maxLines = 3;
+                            final maxHeight =
+                                constraints.maxHeight.isFinite &&
+                                        constraints.maxHeight > 0
+                                    ? constraints.maxHeight
+                                    : titleSize * titleHeight * maxLines;
+                            final style = TextStyle(
+                              color: ink,
+                              fontSize: titleSize,
+                              fontWeight: FontWeight.w400,
+                              height: titleHeight,
+                              fontFamily: titleFontFamily,
+                              fontFamilyFallback: titleFontFamilyFallback,
+                            );
+                            final size = AppDimens.fontSizeFor(
+                              text: title,
+                              style: style,
+                              maxWidth: constraints.maxWidth,
+                              maxHeight: maxHeight,
+                              maxLines: maxLines,
+                              minFontSize: 8,
+                              textAlign: textAlign,
+                              textDirection: titleTextDirection,
+                            );
+                            return FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: align,
+                              child: ConstrainedBox(
+                                constraints: BoxConstraints(
+                                  maxWidth: constraints.maxWidth,
+                                ),
+                                child: Text(
+                                  title,
+                                  maxLines: maxLines,
+                                  softWrap: true,
+                                  overflow: TextOverflow.visible,
+                                  textAlign: textAlign,
+                                  textDirection: titleTextDirection,
+                                  textScaler: TextScaler.noScaling,
+                                  style: style.copyWith(fontSize: size),
+                                ),
+                              ),
+                            );
+                          },
                         ),
-                      );
-                    },
-                  ),
                 ),
                 if (onStarTap != null) ...[
                   const SizedBox(width: 4),
@@ -136,7 +174,9 @@ class IndexGridCard extends StatelessWidget {
                       minHeight: AppDimens.indexStarTap,
                     ),
                     icon: Icon(
-                      starred ? Icons.star_rounded : Icons.star_outline_rounded,
+                      starred
+                          ? Icons.star_rounded
+                          : Icons.star_outline_rounded,
                       color: starred
                           ? AppTheme.orange
                           : ink.withValues(alpha: 0.35),

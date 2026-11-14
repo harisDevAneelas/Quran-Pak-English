@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../../core/app_theme.dart';
 import '../../data/translation_catalog.dart';
-import '../widgets/orange_app_bar.dart';
 import '../widgets/reader_page_scaffold.dart';
 
 class TranslationMultiSelectScreen extends StatefulWidget {
@@ -53,21 +52,10 @@ class _TranslationMultiSelectScreenState
       canPop: false,
       onPopInvokedWithResult: (didPop, result) {
         if (didPop) return;
-        Navigator.of(context).pop(_orderedSelection());
+        _done();
       },
       child: ReaderPageScaffold(
         title: 'Choose translations',
-        showDrawer: false,
-        leadingWidth: 88,
-        leading: Padding(
-          padding: EdgeInsetsDirectional.only(start: 8),
-          child: Center(
-            child: GoldDoneButton(
-              onPressed: _done,
-              label: 'Save',
-            ),
-          ),
-        ),
         body: Directionality(
           textDirection: TextDirection.ltr,
           child: Column(

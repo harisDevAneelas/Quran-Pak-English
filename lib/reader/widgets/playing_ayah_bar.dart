@@ -25,8 +25,6 @@ class PlayingAyahBarHost extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final nav = ReaderNavScope.maybeOf(context)?.nav;
-    // Never return a 0×0 child inside a Stack — that fails hit-test and
-    // spams mouse_tracker assertions on desktop / simulator.
     if (nav == null) {
       return const IgnorePointer(child: SizedBox.expand());
     }
@@ -116,7 +114,6 @@ class PlayingAyahBar extends StatelessWidget {
     final radius = AppDimens.playingAyahBarRadius * scale;
     final inset = AppDimens.playingAyahBarInset * scale;
     final playSize = AppDimens.playingAyahPlaySize * scale;
-    // Chip keeps Arabic mushaf name; list UIs use EngName via listTitle.
     final rawName = QuranMetadata.nameArOrEmpty(surah);
     final surahLabel = playingSurahCaption(rawName);
     final ayahLabel = playingAyahCaption(ayah);

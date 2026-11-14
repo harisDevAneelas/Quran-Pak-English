@@ -10,6 +10,7 @@ import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
 import '../core/app_theme.dart';
 import '../core/mushaf_layout.dart';
+import '../core/mushaf_script.dart';
 import '../quran/rendering/kfgqpc_font_scope.dart';
 import '../data/ayah_repeat_mode.dart';
 import '../data/mushaf_divisions.dart';
@@ -33,12 +34,14 @@ import 'playing_ayah_follow.dart';
 import 'profile_manager.dart';
 import 'quran_reader_controller.dart';
 import 'reader_nav_scope.dart';
+import 'reader_routes.dart';
 import 'reader_settings.dart';
 import 'reading_position_store.dart';
 import 'tilawat_position_store.dart';
 import 'screens/bookmarks_screen.dart';
 import 'screens/daily_recitation_screen.dart';
 import 'screens/hub_menu_screen.dart';
+import 'screens/mushaf_script_picker_screen.dart';
 import 'screens/option_list_screen.dart';
 import 'screens/para_grid_screen.dart';
 import 'screens/profile_screen.dart';
@@ -132,6 +135,10 @@ class _QuranReaderScreenState extends State<QuranReaderScreen>
   int? _pinchAnchorIndex;
   double? _pinchAnchorAlignment;
   bool _pinchActive = false;
+
+  /// After a mushaf-script remount, restore this list index + viewport alignment.
+  int? _scriptAnchorIndex;
+  double _scriptAnchorAlignment = 0;
   bool _translationsReady = false;
   List<String> _loadedTranslatorIds = const [];
   int _translationLoadGen = 0;
@@ -155,7 +162,7 @@ class _QuranReaderScreenState extends State<QuranReaderScreen>
     widget.readerNav.attach(
       jumpToSurah: _jumpToSurahFromNav,
       jumpToAyah: _jumpToAyahFromNav,
-      openDestination: _openSidebarDestination,
+      openDestination: _onSidebarDestination,
       onPlayingBarTap: _onPlayingBarTapped,
       onPlayingBarPlay: _onBottomPlayPressed,
       onPlayingBarClose: _onPlayingBarClosed,
@@ -180,7 +187,6 @@ class _QuranReaderScreenState extends State<QuranReaderScreen>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Do not end locate on [inactive] — OS permission / settings sheets use it.
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden ||
         state == AppLifecycleState.detached) {
@@ -194,8 +200,13 @@ class _QuranReaderScreenState extends State<QuranReaderScreen>
     }
     if (state == AppLifecycleState.resumed) {
       _consumeNotificationRoute();
-      // Cache-only / at most ~twice a day — not a live GPS session.
-      unawaited(PrayerTimeService.instance.ensureLocation());
+      unawaited(() async {
+        await PrayerTimeService.instance.ensureLocation();
+        if (!mounted) return;
+        if (PrayerTimeService.instance.hasCoords) {
+          await _rescheduleNotificationsAfterLocation();
+        }
+      }());
     }
   }
 
@@ -214,7 +225,6 @@ class _QuranReaderScreenState extends State<QuranReaderScreen>
       }
       return;
     }
-    // Uses cache; live GPS only if missing or older than ~12 hours.
     final hadCoords = service.hasCoords;
     await service.ensureLocation();
     if (!mounted) return;
@@ -320,7 +330,6 @@ class _QuranReaderScreenState extends State<QuranReaderScreen>
 
   void _onSettingsChanged() {
     unawaited(_syncBackgroundRecitation());
-    // Profile load/switch replaces prefs; never continue the previous session.
     if (widget.settings.applyingProfile) {
       if (_audio.isActive) unawaited(_audio.stop());
     } else if (_audio.isActive) {
@@ -331,10 +340,8 @@ class _QuranReaderScreenState extends State<QuranReaderScreen>
           _audio.audioLanguageId != expectedLanguage;
       if (voiceChanged) {
         if (_audio.playing) {
-          // Keep listening with the new voice/order.
           unawaited(_playAyah(_audio.surah!, _audio.ayah!));
         } else {
-          // Paused: do not auto-start (e.g. after stop, then change reciter).
           unawaited(_audio.stop());
         }
       }
@@ -423,7 +430,6 @@ class _QuranReaderScreenState extends State<QuranReaderScreen>
     final ids = List<String>.from(widget.settings.translatorIds);
     debugPrint('Loading translations: $ids');
 
-    // Load each pack independently so one failure cannot blank the UI.
     final loaded = <String>[];
     for (final id in ids) {
       try {
@@ -645,24 +651,45 @@ class _QuranReaderScreenState extends State<QuranReaderScreen>
 
   void _popToReader() {
     final nav = Navigator.of(context, rootNavigator: true);
-    if (nav.canPop()) {
-      nav.popUntil((route) => route.isFirst);
-    }
+    nav.popUntil((route) => route.isFirst);
     _scaffoldKey.currentState?.closeDrawer();
+  }
+
+  bool _popForMainOpen(String mainName) {
+    final nav = Navigator.of(context);
+    var kept = false;
+    nav.popUntil((route) {
+      if (route.settings.name == mainName) {
+        kept = true;
+        return true;
+      }
+      return route.isFirst;
+    });
+    return kept;
+  }
+
+  void _popToNearestMainOrRoot() {
+    Navigator.of(context).popUntil((route) {
+      if (ReaderRoutes.isMainName(route.settings.name)) return true;
+      return route.isFirst;
+    });
+  }
+
+  void _afterStackSettle(VoidCallback action) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      action();
+    });
   }
 
   void _jumpToSurahFromNav(int surah) {
     _popToReader();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _jumpToSurah(surah);
-    });
+    _afterStackSettle(() => _jumpToSurah(surah));
   }
 
   void _jumpToAyahFromNav(int surah, int ayah) {
     _popToReader();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _jumpToAyah(surah, ayah);
-    });
+    _afterStackSettle(() => _jumpToAyah(surah, ayah));
   }
 
   void _onPlayingBarTapped() {
@@ -719,28 +746,21 @@ class _QuranReaderScreenState extends State<QuranReaderScreen>
   }
 
   void _openTodaysRecitation() {
-    final nav = Navigator.of(context);
-    var alreadyOpen = false;
-    nav.popUntil((route) {
-      if (route.settings.name == NotificationRoute.todaysRecitationPayload) {
-        alreadyOpen = true;
-      }
-      return true;
+    if (_popForMainOpen(ReaderRoutes.todaysRecitation)) return;
+    _afterStackSettle(() {
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          settings: const RouteSettings(name: ReaderRoutes.todaysRecitation),
+          builder: (_) => TodaysRecitationScreen(
+            settings: widget.settings,
+            dailyPlanStore: widget.dailyPlanStore,
+            tilawatPositionStore: widget.tilawatPositionStore,
+            profiles: widget.profiles,
+            learnedNotifyStore: widget.learnedNotifyStore,
+          ),
+        ),
+      );
     });
-    if (alreadyOpen) return;
-    nav.push(
-      MaterialPageRoute<void>(
-        settings: const RouteSettings(
-          name: NotificationRoute.todaysRecitationPayload,
-        ),
-        builder: (_) => TodaysRecitationScreen(
-          settings: widget.settings,
-          dailyPlanStore: widget.dailyPlanStore,
-          tilawatPositionStore: widget.tilawatPositionStore,
-          profiles: widget.profiles,
-        ),
-      ),
-    );
   }
 
   void _openDailyArrangement() {
@@ -749,36 +769,41 @@ class _QuranReaderScreenState extends State<QuranReaderScreen>
         builder: (_) => DailyRecitationScreen(
           dailyPlanStore: widget.dailyPlanStore,
           profiles: widget.profiles,
+          learnedNotifyStore: widget.learnedNotifyStore,
         ),
       ),
     );
   }
 
   void _openHubMenu() {
-    Navigator.of(context).push(
-      MaterialPageRoute<void>(
-        builder: (_) => HubMenuScreen(
-          pinnedSurahStore: widget.pinnedSurahStore,
-          indexBookmarkStore: widget.indexBookmarkStore,
-          onJumpToSurah: _jumpToSurahFromNav,
-          onOpenManzilList: () {
-            _openVerseCollectionById(VerseCollectionIds.manzil);
-          },
-          onOpenTodaysRecitation: _openTodaysRecitation,
-          onOpenDailyArrangement: _openDailyArrangement,
-          onOpenAyatEShifa: () {
-            _openVerseCollectionById(VerseCollectionIds.shifa);
-          },
-          onOpenFortyRabbana: () {
-            _openVerseCollectionById(VerseCollectionIds.rabbana);
-          },
-          onOpenRuqyahShariah: () {
-            _openVerseCollectionById(VerseCollectionIds.ruqyah);
-          },
-          onLocationUpdated: _rescheduleNotificationsAfterLocation,
+    if (_popForMainOpen(ReaderRoutes.hub)) return;
+    _afterStackSettle(() {
+      Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          settings: const RouteSettings(name: ReaderRoutes.hub),
+          builder: (_) => HubMenuScreen(
+            pinnedSurahStore: widget.pinnedSurahStore,
+            indexBookmarkStore: widget.indexBookmarkStore,
+            onJumpToSurah: _jumpToSurahFromNav,
+            onOpenManzilList: () {
+              _openVerseCollectionById(VerseCollectionIds.manzil);
+            },
+            onOpenTodaysRecitation: _openTodaysRecitation,
+            onOpenDailyArrangement: _openDailyArrangement,
+            onOpenAyatEShifa: () {
+              _openVerseCollectionById(VerseCollectionIds.shifa);
+            },
+            onOpenFortyRabbana: () {
+              _openVerseCollectionById(VerseCollectionIds.rabbana);
+            },
+            onOpenRuqyahShariah: () {
+              _openVerseCollectionById(VerseCollectionIds.ruqyah);
+            },
+            onLocationUpdated: _rescheduleNotificationsAfterLocation,
+          ),
         ),
-      ),
-    );
+      );
+    });
   }
 
   void _openVerseCollectionById(String listId) {
@@ -799,47 +824,53 @@ class _QuranReaderScreenState extends State<QuranReaderScreen>
   }
 
   void _onSidebarDestination(SidebarDestination destination) {
-    Navigator.of(context).maybePop();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      _openSidebarDestination(destination);
-    });
+    _scaffoldKey.currentState?.closeDrawer();
+    _afterStackSettle(() => _openSidebarDestination(destination));
   }
 
   void _openSidebarDestination(SidebarDestination destination) {
     switch (destination) {
-        case SidebarDestination.dailyRecitation:
-          _openTodaysRecitation();
-        case SidebarDestination.dailyArrangement:
-          _openDailyArrangement();
-        case SidebarDestination.surahList:
-          _openSurahGrid();
-        case SidebarDestination.paraList:
-          _openParaGrid();
-        case SidebarDestination.manzil:
-          _openVerseCollectionById(VerseCollectionIds.manzil);
-        case SidebarDestination.search:
-          _openSearch();
-        case SidebarDestination.bookmarks:
-          _openBookmarks();
-        case SidebarDestination.profiles:
-          _openProfiles();
-        case SidebarDestination.reciter:
-          _openReciterPicker();
-        case SidebarDestination.audioLanguage:
-          _openAudioLanguagePicker();
-        case SidebarDestination.translator:
-          _openTranslatorPicker();
-        case SidebarDestination.shareApp:
-          _shareApp();
-        case SidebarDestination.textSize:
-          showModalBottomSheet<void>(
-            context: context,
-            showDragHandle: false,
-            builder: (context) =>
-                TextSizeBottomSheet(settings: widget.settings),
-          );
+      case SidebarDestination.dailyRecitation:
+        _openTodaysRecitation();
+      case SidebarDestination.profiles:
+        unawaited(_openProfiles());
+      case SidebarDestination.shareApp:
+        unawaited(_shareApp());
+      case SidebarDestination.textSize:
+        showModalBottomSheet<void>(
+          context: context,
+          showDragHandle: false,
+          builder: (context) =>
+              TextSizeBottomSheet(settings: widget.settings),
+        );
+      case SidebarDestination.dailyArrangement:
+        _openNestedFromDrawer(_openDailyArrangement);
+      case SidebarDestination.surahList:
+        _openNestedFromDrawer(_openSurahGrid);
+      case SidebarDestination.paraList:
+        _openNestedFromDrawer(_openParaGrid);
+      case SidebarDestination.manzil:
+        _openNestedFromDrawer(
+          () => _openVerseCollectionById(VerseCollectionIds.manzil),
+        );
+      case SidebarDestination.search:
+        _openNestedFromDrawer(() => unawaited(_openSearch()));
+      case SidebarDestination.bookmarks:
+        _openNestedFromDrawer(() => unawaited(_openBookmarks()));
+      case SidebarDestination.reciter:
+        _openNestedFromDrawer(() => unawaited(_openReciterPicker()));
+      case SidebarDestination.audioLanguage:
+        _openNestedFromDrawer(() => unawaited(_openAudioLanguagePicker()));
+      case SidebarDestination.translator:
+        _openNestedFromDrawer(() => unawaited(_openTranslatorPicker()));
+      case SidebarDestination.mushafScript:
+        _openNestedFromDrawer(_openMushafScriptPicker);
     }
+  }
+
+  void _openNestedFromDrawer(VoidCallback open) {
+    _popToNearestMainOrRoot();
+    _afterStackSettle(open);
   }
 
   void _openSurahGrid() {
@@ -863,12 +894,23 @@ class _QuranReaderScreenState extends State<QuranReaderScreen>
     );
   }
 
+  void _openMushafScriptPicker() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        settings: const RouteSettings(name: ReaderRoutes.mushafScript),
+        builder: (_) => MushafScriptPickerScreen(
+          settings: widget.settings,
+          apply: _applyMushafScript,
+        ),
+      ),
+    );
+  }
+
   Future<void> _openSearch() async {
     final picked = await Navigator.of(context).push<({int surah, int ayah})>(
       MaterialPageRoute(builder: (_) => const SurahSearchScreen()),
     );
     if (!mounted || picked == null) return;
-    // Always return to the main mushaf (pop hub / collections / etc.).
     _jumpToAyahFromNav(picked.surah, picked.ayah);
   }
 
@@ -890,23 +932,69 @@ class _QuranReaderScreenState extends State<QuranReaderScreen>
     }
   }
 
+  Future<void> _applyMushafScript(MushafScript script) async {
+    _captureScriptScrollAnchor();
+    widget.settings.setMushafScript(script);
+    await widget.controller.setMushafScript(script);
+  }
+
+  /// Remember the top visible ayah’s place in the viewport before remount.
+  void _captureScriptScrollAnchor() {
+    final positions = _itemPositionsListener.itemPositions.value;
+    ItemPosition? topAyah;
+    for (final position in positions) {
+      if (position.itemTrailingEdge <= 0) continue;
+      if (position.itemLeadingEdge >= 1) continue;
+      if (position.index < 0 || position.index >= MushafLayout.itemCount) {
+        continue;
+      }
+      if (MushafLayout.slotAt(position.index) is! MushafAyahSlot) continue;
+      if (topAyah == null ||
+          position.itemLeadingEdge < topAyah.itemLeadingEdge) {
+        topAyah = position;
+      }
+    }
+    if (topAyah == null) {
+      _scriptAnchorIndex = widget.controller.itemIndexForAyah(
+        widget.controller.currentSurah,
+        widget.controller.currentAyah,
+      );
+      _scriptAnchorAlignment = 0;
+      return;
+    }
+    _scriptAnchorIndex = topAyah.index;
+    _scriptAnchorAlignment = topAyah.itemLeadingEdge.clamp(0.0, 0.85);
+  }
+
   Future<void> _openProfiles() async {
-    final jumpTo = await Navigator.of(context)
-        .push<({int surah, int ayah, bool openAtSurahHeader})?>(
-          MaterialPageRoute(
-            builder: (_) => ProfileScreen(
-              profiles: widget.profiles,
-              settings: widget.settings,
-              dailyPlanStore: widget.dailyPlanStore,
-              tilawatPositionStore: widget.tilawatPositionStore,
-              onSwitchProfile: widget.onSwitchProfile,
-              onDeleteProfile: widget.onDeleteProfile,
+    if (_popForMainOpen(ReaderRoutes.profile)) return;
+    final result =
+        Completer<({int surah, int ayah, bool openAtSurahHeader})?>();
+    _afterStackSettle(() async {
+      if (!mounted) {
+        result.complete(null);
+        return;
+      }
+      final jumpTo = await Navigator.of(context)
+          .push<({int surah, int ayah, bool openAtSurahHeader})?>(
+            MaterialPageRoute(
+              settings: const RouteSettings(name: ReaderRoutes.profile),
+              builder: (_) => ProfileScreen(
+                profiles: widget.profiles,
+                settings: widget.settings,
+                dailyPlanStore: widget.dailyPlanStore,
+                tilawatPositionStore: widget.tilawatPositionStore,
+                learnedNotifyStore: widget.learnedNotifyStore,
+                onSwitchProfile: widget.onSwitchProfile,
+                onDeleteProfile: widget.onDeleteProfile,
+                applyMushafScript: _applyMushafScript,
+              ),
             ),
-          ),
-        );
+          );
+      if (!result.isCompleted) result.complete(jumpTo);
+    });
+    final jumpTo = await result.future;
     if (!mounted || jumpTo == null) return;
-    // Jump only after the profile route is gone — awaiting scrollTo under that
-    // overlay can hang and leave the busy spinner up forever.
     await _audio.stop();
     if (jumpTo.openAtSurahHeader) {
       await _jumpToSurah(jumpTo.surah);
@@ -918,6 +1006,7 @@ class _QuranReaderScreenState extends State<QuranReaderScreen>
   Future<void> _openReciterPicker() async {
     final choice = await Navigator.of(context).push<String>(
       MaterialPageRoute<String>(
+        settings: const RouteSettings(name: ReaderRoutes.reciter),
         builder: (_) => ReciterListScreen(
           selectedLabel: widget.settings.reciterLabel,
         ),
@@ -930,6 +1019,7 @@ class _QuranReaderScreenState extends State<QuranReaderScreen>
   Future<void> _openAudioLanguagePicker() async {
     final choice = await Navigator.of(context).push<String>(
       MaterialPageRoute<String>(
+        settings: const RouteSettings(name: ReaderRoutes.spokenTranslation),
         builder: (_) => AudioLanguageListScreen(
           selectedLabel: widget.settings.audioLanguageLabel,
         ),
@@ -942,6 +1032,7 @@ class _QuranReaderScreenState extends State<QuranReaderScreen>
   Future<void> _openTranslatorPicker() async {
     final choice = await Navigator.of(context).push<List<String>>(
       MaterialPageRoute<List<String>>(
+        settings: const RouteSettings(name: ReaderRoutes.onScreenTranslation),
         builder: (_) => TranslationMultiSelectScreen(
           selectedIds: widget.settings.translatorIds,
         ),
@@ -949,7 +1040,6 @@ class _QuranReaderScreenState extends State<QuranReaderScreen>
     );
     if (!mounted || choice == null) return;
     widget.settings.setTranslatorIds(choice);
-    // Empty selection hides on-screen text; picking any turns it back on.
     if (choice.isEmpty) {
       if (!widget.settings.hideTranslation) {
         widget.settings.setHideTranslation(true);
@@ -1037,7 +1127,6 @@ class _QuranReaderScreenState extends State<QuranReaderScreen>
 
   void _cycleAyahRepeatMode() {
     widget.settings.cycleAyahRepeatMode();
-    // Apply immediately while audio is active (do not wait for rebuild).
     _audio.ayahRepeatMode = widget.settings.ayahRepeatMode;
   }
 
@@ -1180,9 +1269,22 @@ class _QuranReaderScreenState extends State<QuranReaderScreen>
             onPinchEnded: _onMushafPinchEnded,
             onFontSizeChanged: _onMushafPinchFontSize,
             child: _ReaderList(
+              key: ValueKey<String>(
+                'mushaf-${widget.controller.mushafScript.name}-'
+                '${widget.controller.mushafListEpoch}',
+              ),
               controller: widget.controller,
               bismillah: widget.controller.bismillah,
-              initialScrollIndex: widget.controller.initialScrollIndex,
+              initialScrollIndex: widget.controller.mushafListEpoch == 0
+                  ? widget.controller.initialScrollIndex
+                  : (_scriptAnchorIndex ??
+                      widget.controller.itemIndexForAyah(
+                        widget.controller.currentSurah,
+                        widget.controller.currentAyah,
+                      )),
+              initialAlignment: widget.controller.mushafListEpoch == 0
+                  ? 0
+                  : _scriptAnchorAlignment,
               itemScrollController: _itemScrollController,
               itemPositionsListener: _itemPositionsListener,
               inkColor: theme.colorScheme.onSurface,
@@ -1230,7 +1332,6 @@ class _QuranReaderScreenState extends State<QuranReaderScreen>
             ),
             automaticallyImplyLeading: false,
             centerTitle: true,
-            // Same side slot as [_ReaderBottomBar] so corner icons line up.
             leadingWidth: _ReaderBottomBar.sideSlotWidth,
             leading: ready
                 ? IconButton(
@@ -1443,7 +1544,6 @@ class _QuranReaderScreenState extends State<QuranReaderScreen>
     );
     final dpr = MediaQuery.devicePixelRatioOf(context);
     final fontSize = widget.settings.fontSize;
-    // Look farther and enqueue multiple ayahs per frame (was: 16 / stop at 1).
     const maxSteps = 40;
     const maxAyahsPerFrame = 4;
     var queuedAyahs = 0;
@@ -1529,7 +1629,6 @@ class _ReaderBottomBar extends StatelessWidget {
             alignment: Alignment.center,
             clipBehavior: Clip.none,
             children: [
-              // Truly centered transport cluster (not offset by unequal sides).
               Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -1728,7 +1827,6 @@ class _AyahRepeatButtonState extends State<_AyahRepeatButton>
       vsync: this,
       duration: const Duration(milliseconds: 1200),
     );
-    // Jump up sharply, then fall and settle with ball bounces.
     _offsetY = TweenSequence<double>([
       TweenSequenceItem(
         tween: Tween<double>(begin: 0, end: -20)
@@ -1838,9 +1936,11 @@ class _AyahRepeatButtonState extends State<_AyahRepeatButton>
 
 class _ReaderList extends StatelessWidget {
   const _ReaderList({
+    super.key,
     required this.controller,
     required this.bismillah,
     required this.initialScrollIndex,
+    this.initialAlignment = 0,
     required this.itemScrollController,
     required this.itemPositionsListener,
     required this.inkColor,
@@ -1858,6 +1958,7 @@ class _ReaderList extends StatelessWidget {
   final QuranReaderController controller;
   final QuranAyahChunk? bismillah;
   final int initialScrollIndex;
+  final double initialAlignment;
   final ItemScrollController itemScrollController;
   final ItemPositionsListener itemPositionsListener;
   final Color inkColor;
@@ -1900,6 +2001,7 @@ class _ReaderList extends StatelessWidget {
               0,
               MushafLayout.itemCount - 1,
             ),
+            initialAlignment: initialAlignment,
             itemCount: MushafLayout.itemCount,
             padding: EdgeInsets.fromLTRB(
               20,

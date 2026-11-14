@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 
 import '../../core/app_theme.dart';
-import '../../core/quran_font.dart';
 import '../../core/app_dimens.dart';
+import '../../core/mushaf_script.dart';
+import '../../core/quran_font.dart';
+import '../../data/ayah_ref.dart';
 import '../../data/quran_metadata.dart';
+import '../../data/quran_repository.dart';
 import '../../data/recommended_surah.dart';
 import '../index_bookmark_store.dart';
 import '../pinned_surah_store.dart';
@@ -106,6 +109,20 @@ class _HubMenuScreenState extends State<HubMenuScreen> {
     });
   }
 
+  static Future<String> _hubBismillahText(MushafScript script) async {
+    final repo = QuranDataRepository.forScript(script);
+    if (repo.bismillah == null) {
+      await repo.loadWindow(
+        const AyahWindow(start: AyahRef.first, end: AyahRef(1, 1)),
+      );
+    }
+    final words = repo.bismillah?.words;
+    if (words == null || words.isEmpty) {
+      return QuranMetadata.bismillahTextOrEmpty(script: script);
+    }
+    return words.map((w) => w.text).join(' ');
+  }
+
   void _openSurahGrid() {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -128,7 +145,6 @@ class _HubMenuScreenState extends State<HubMenuScreen> {
   }
 
   Future<void> _openPinSheet() async {
-    // Prefer store profile pins (not stale UI) after a mid-session switch.
     if (_loadedForProfile != widget.pinnedSurahStore.profileId) {
       await _loadPins();
       if (!mounted) return;
@@ -140,7 +156,6 @@ class _HubMenuScreenState extends State<HubMenuScreen> {
         initial: Set<int>.from(_pinned),
         bookmarked: List<int>.from(_starredSurahs),
         onChanged: (next) async {
-          // Row check/uncheck only updates hub pins — star stays.
           await widget.pinnedSurahStore.save(next);
           if (!mounted) return;
           if (widget.pinnedSurahStore.profileId != _loadedForProfile) {
@@ -150,7 +165,6 @@ class _HubMenuScreenState extends State<HubMenuScreen> {
           setState(() => _pinned = next);
         },
         onStarClear: (surahId) async {
-          // Star button: unpin from hub/quick list and clear bookmark.
           final next = {..._pinned}..remove(surahId);
           await widget.pinnedSurahStore.save(next);
           await widget.indexBookmarkStore.setSurahBookmarked(surahId, false);
@@ -194,7 +208,6 @@ class _HubMenuScreenState extends State<HubMenuScreen> {
       );
     }
 
-    // Bookmarked / pinned surahs only (paras stay off the hub).
     for (final id in _pinned) {
       addSurahTile(id, highlighted: timedIds.contains(id));
     }
@@ -275,28 +288,35 @@ class _HubMenuScreenState extends State<HubMenuScreen> {
             icon: const Icon(Icons.close, size: 26),
           ),
         ],
-        title: FutureBuilder<QuranMetadata>(
-          future: QuranMetadata.load(),
-          builder: (context, snap) {
-            final text = snap.hasData
-                ? snap.data!.bismillahWords.join(' ')
-                : QuranMetadata.bismillahTextOrEmpty();
-            return ScreenFitText(
-              text,
-              maxLines: 1,
-              minFontSize: AppDimens.fontHubTitleMin,
-              textAlign: TextAlign.center,
-              textDirection: TextDirection.rtl,
-              style: TextStyle(
-                fontFamily: QuranFont.family,
-                color: Colors.white,
-                fontSize: AppDimens.fontHubTitle,
-                fontWeight: FontWeight.w600,
-                height: QuranFont.recommendedLineHeight * 0.75,
+        title: nav == null
+            ? const SizedBox.shrink()
+            : ListenableBuilder(
+                listenable: nav.settings,
+                builder: (context, _) {
+                  final script = nav.settings.mushafScript;
+                  return FutureBuilder<String>(
+                    key: ValueKey<String>('hub-bismillah-${script.name}'),
+                    future: _hubBismillahText(script),
+                    builder: (context, snap) {
+                      final text = snap.data ??
+                          QuranMetadata.bismillahTextOrEmpty(script: script);
+                      return ScreenFitText(
+                        text,
+                        maxLines: 1,
+                        minFontSize: AppDimens.fontHubTitleMin,
+                        textAlign: TextAlign.center,
+                        textDirection: TextDirection.rtl,
+                        style: QuranFont.baseFor(script).copyWith(
+                          color: Colors.white,
+                          fontSize: AppDimens.fontHubTitle,
+                          fontWeight: FontWeight.w600,
+                          height: QuranFont.recommendedLineHeight * 0.75,
+                        ),
+                      );
+                    },
+                  );
+                },
               ),
-            );
-          },
-        ),
       ),
       body: Stack(
         fit: StackFit.expand,

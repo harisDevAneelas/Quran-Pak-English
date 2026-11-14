@@ -25,6 +25,7 @@ enum SidebarDestination {
   audioLanguage,
   translator,
   shareApp,
+  mushafScript,
   textSize,
 }
 
@@ -281,6 +282,15 @@ class _ReaderMenuDrawerState extends State<ReaderMenuDrawer> {
                         ),
                         const _Separator(),
                         _MenuButton(
+                          title: 'Mushaf script',
+                          subtitle: widget.settings.mushafScriptLabel,
+                          icon: _sidebarIcon(Icons.history_edu_outlined),
+                          onTap: () => widget.onDestination(
+                            SidebarDestination.mushafScript,
+                          ),
+                        ),
+                        const _Separator(),
+                        _MenuButton(
                           title: 'Text size',
                           icon: _sidebarIcon(Icons.format_size),
                           onTap: () => widget.onDestination(
@@ -365,7 +375,6 @@ class _TodaysTilawatRow extends StatelessWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-              // LTR: first child sits on the left — book matches other row icons.
               _sidebarIcon(Icons.auto_stories_outlined),
               const SizedBox(width: 6),
               const Expanded(
@@ -448,15 +457,12 @@ class _MenuButton extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         child: SizedBox(
-          // iOS text metrics need more than Android for title+subtitle.
           height: hasSubtitle ? 72 : 52,
           child: Padding(
-            // Icons on start (left in LTR); inset from the drawer edge.
             padding: const EdgeInsetsDirectional.only(start: 10, end: 4),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                // Fixed-width leading column so every row icon lines up.
                 SizedBox(
                   width: 22,
                   child: icon == null ? null : Center(child: icon),

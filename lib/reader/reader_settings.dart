@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../core/mushaf_script.dart';
 import '../data/audio_language_catalog.dart';
 import '../data/ayah_repeat_mode.dart';
 import '../data/azaan_catalog.dart';
@@ -17,6 +18,7 @@ class ReaderSettings extends ChangeNotifier {
   static const _baseKey = 'reader_settings_v1';
 
   double _fontSize = 40;
+  MushafScript _mushafScript = MushafScript.defaultScript;
   bool _tajweedEnabled = true;
   ThemeMode _themeMode = ThemeMode.light;
   Color? _customBackground;
@@ -39,6 +41,8 @@ class ReaderSettings extends ChangeNotifier {
   bool applyingProfile = false;
 
   double get fontSize => _fontSize;
+  MushafScript get mushafScript => _mushafScript;
+  String get mushafScriptLabel => _mushafScript.label;
   bool get tajweedEnabled => _tajweedEnabled;
   ThemeMode get themeMode => _themeMode;
   Color? get customBackground => _customBackground;
@@ -106,6 +110,12 @@ class ReaderSettings extends ChangeNotifier {
     final next = value.clamp(18.0, 56.0);
     if (next == _fontSize) return;
     _fontSize = next;
+    notifyListeners();
+  }
+
+  void setMushafScript(MushafScript value) {
+    if (value == _mushafScript) return;
+    _mushafScript = value;
     notifyListeners();
   }
 
@@ -177,8 +187,6 @@ class ReaderSettings extends ChangeNotifier {
     }
     _tilawatOrder = value;
     _audioTranslationEnabled = wantsSpoken;
-    // On-screen text is not tied to whether translation audio is playing.
-    // صرف Translation (and mixed orders) still show the translation on screen.
     if (wantsSpoken) {
       _hideTranslation = false;
     }
@@ -225,6 +233,7 @@ class ReaderSettings extends ChangeNotifier {
 
   Map<String, dynamic> toJson() => {
         'fontSize': _fontSize,
+        'mushafScript': _mushafScript.prefsName,
         'tajweedEnabled': _tajweedEnabled,
         'themeMode': _themeMode.name,
         'customBackground': _customBackground?.toARGB32(),
@@ -249,6 +258,9 @@ class ReaderSettings extends ChangeNotifier {
     try {
       _fontSize =
           (json?['fontSize'] as num?)?.toDouble().clamp(18.0, 56.0) ?? 40;
+      _mushafScript = json == null || !json.containsKey('mushafScript')
+          ? MushafScript.defaultScript
+          : MushafScript.fromName(json['mushafScript'] as String?);
       _tajweedEnabled = json?['tajweedEnabled'] as bool? ?? true;
       _themeMode = _themeModeFromName(json?['themeMode'] as String?);
       final bg = json?['customBackground'];

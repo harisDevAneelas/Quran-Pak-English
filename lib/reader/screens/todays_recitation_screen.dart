@@ -16,6 +16,7 @@ import '../../data/quran_repository.dart';
 import '../../data/recommended_surah.dart';
 import '../daily_plan.dart';
 import '../daily_range.dart';
+import '../learned_notify_store.dart';
 import '../playing_ayah_follow.dart';
 import '../profile_manager.dart';
 import '../reader_nav_scope.dart';
@@ -54,12 +55,14 @@ class TodaysRecitationScreen extends StatefulWidget {
     required this.dailyPlanStore,
     required this.tilawatPositionStore,
     required this.profiles,
+    required this.learnedNotifyStore,
   });
 
   final ReaderSettings settings;
   final DailyPlanStore dailyPlanStore;
   final TilawatPositionStore tilawatPositionStore;
   final ProfileManager profiles;
+  final LearnedNotifyStore learnedNotifyStore;
 
   @override
   State<TodaysRecitationScreen> createState() => _TodaysRecitationScreenState();
@@ -67,7 +70,7 @@ class TodaysRecitationScreen extends StatefulWidget {
 
 class _TodaysRecitationScreenState extends State<TodaysRecitationScreen>
     with SingleTickerProviderStateMixin {
-  final QuranDataRepository _repo = QuranDataRepository();
+  late QuranDataRepository _repo;
 
   /// Full-mushaf list.
   final ItemScrollController _itemScroll = ItemScrollController();
@@ -99,6 +102,8 @@ class _TodaysRecitationScreenState extends State<TodaysRecitationScreen>
   ({int surah, int ayah})? _pendingPositionSave;
   bool _scrollActive = false;
   int _initialScrollIndex = 0;
+  double _initialAlignment = 0;
+  int _listEpoch = 0;
 
   bool _advanced = false;
   bool _offeredReadMore = false;
@@ -133,6 +138,8 @@ class _TodaysRecitationScreenState extends State<TodaysRecitationScreen>
   @override
   void initState() {
     super.initState();
+    _repo = QuranDataRepository.forScript(widget.settings.mushafScript);
+    widget.settings.addListener(_onSettingsChanged);
     _promptAnim = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 380),
@@ -149,8 +156,51 @@ class _TodaysRecitationScreenState extends State<TodaysRecitationScreen>
     _load();
   }
 
+  void _onSettingsChanged() {
+    final next = QuranDataRepository.forScript(widget.settings.mushafScript);
+    if (next.fullAssetPath == _repo.fullAssetPath) return;
+    _captureScriptScrollAnchor();
+    _repo = next;
+    _load(preserveVisible: true);
+  }
+
+  int? _scriptAnchorIndex;
+  double _scriptAnchorAlignment = 0;
+
+  void _captureScriptScrollAnchor() {
+    if (_portionMode) {
+      if (!_portionScroll.hasClients) {
+        _scriptAnchorIndex = null;
+        return;
+      }
+      final max = _portionScroll.position.maxScrollExtent;
+      _scriptAnchorIndex = -1;
+      _scriptAnchorAlignment = max <= 0
+          ? 0
+          : (_portionScroll.position.pixels / max).clamp(0.0, 1.0);
+      return;
+    }
+    final positions = _positions.itemPositions.value;
+    ItemPosition? top;
+    for (final position in positions) {
+      if (position.itemTrailingEdge <= 0) continue;
+      if (position.itemLeadingEdge >= 1) continue;
+      if (top == null || position.itemLeadingEdge < top.itemLeadingEdge) {
+        top = position;
+      }
+    }
+    if (top == null) {
+      _scriptAnchorIndex = _initialScrollIndex;
+      _scriptAnchorAlignment = 0;
+      return;
+    }
+    _scriptAnchorIndex = top.index;
+    _scriptAnchorAlignment = top.itemLeadingEdge.clamp(0.0, 0.85);
+  }
+
   @override
   void dispose() {
+    widget.settings.removeListener(_onSettingsChanged);
     _positionSaveTimer?.cancel();
     _introChromeTimer?.cancel();
     _portionScroll.removeListener(_onPortionScroll);
@@ -208,7 +258,10 @@ class _TodaysRecitationScreenState extends State<TodaysRecitationScreen>
     return false;
   }
 
-  Future<void> _load({bool scrollToTop = false}) async {
+  Future<void> _load({
+    bool scrollToTop = false,
+    bool preserveVisible = false,
+  }) async {
     _askGeneration++;
     setState(() {
       _loading = true;
@@ -228,7 +281,7 @@ class _TodaysRecitationScreenState extends State<TodaysRecitationScreen>
       if (!mounted) return;
 
       if (plan == null) {
-        await _loadFullMushaf();
+        await _loadFullMushaf(preserveVisible: preserveVisible);
         return;
       }
 
@@ -248,10 +301,19 @@ class _TodaysRecitationScreenState extends State<TodaysRecitationScreen>
         _initialScrollIndex = 0;
         _visibleSurah = ayahs.isEmpty ? null : ayahs.first.surah;
         _visibleAyah = ayahs.isEmpty ? null : ayahs.first.ayah;
+        if (preserveVisible) _listEpoch++;
         _loading = false;
       });
       if (scrollToTop) {
         await _ensurePortionScrollAtTop();
+      } else if (preserveVisible && _scriptAnchorIndex == -1) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || !_portionScroll.hasClients) return;
+          final max = _portionScroll.position.maxScrollExtent;
+          _portionScroll.jumpTo(
+            (_scriptAnchorAlignment * max).clamp(0.0, max),
+          );
+        });
       }
     } catch (e) {
       if (!mounted) return;
@@ -262,7 +324,7 @@ class _TodaysRecitationScreenState extends State<TodaysRecitationScreen>
     }
   }
 
-  Future<void> _loadFullMushaf() async {
+  Future<void> _loadFullMushaf({bool preserveVisible = false}) async {
     final processed = await _repo.loadFull();
     final ayahs = <QuranAyahChunk>[
       for (final item in processed.items)
@@ -273,7 +335,13 @@ class _TodaysRecitationScreenState extends State<TodaysRecitationScreen>
 
     final lead = ayahs.isNotEmpty && ayahs.first.ayah != 1 ? 1 : 0;
     var initialIndex = 0;
-    if (saved != null) {
+    var initialAlignment = 0.0;
+    if (preserveVisible &&
+        _scriptAnchorIndex != null &&
+        _scriptAnchorIndex! >= 0) {
+      initialIndex = _scriptAnchorIndex!;
+      initialAlignment = _scriptAnchorAlignment;
+    } else if (saved != null) {
       final i = ayahs.indexWhere(
         (a) => a.surah == saved.surah && a.ayah == saved.ayah,
       );
@@ -291,6 +359,8 @@ class _TodaysRecitationScreenState extends State<TodaysRecitationScreen>
       _ayahs = ayahs;
       _portionMode = false;
       _initialScrollIndex = initialIndex;
+      _initialAlignment = initialAlignment;
+      _listEpoch++;
       _loading = false;
     });
     unawaited(_showIntroChromeIfNeeded());
@@ -507,6 +577,7 @@ class _TodaysRecitationScreenState extends State<TodaysRecitationScreen>
         builder: (_) => DailyRecitationScreen(
           dailyPlanStore: widget.dailyPlanStore,
           profiles: widget.profiles,
+          learnedNotifyStore: widget.learnedNotifyStore,
         ),
       ),
     );
@@ -597,6 +668,9 @@ class _TodaysRecitationScreenState extends State<TodaysRecitationScreen>
       ]),
       builder: (context, _) {
         return ListView.builder(
+          key: ValueKey<String>(
+            'portion-${widget.settings.mushafScript.name}-$_listEpoch',
+          ),
           controller: _portionScroll,
           physics: MushafPinchLock.of(context)
               ? const NeverScrollableScrollPhysics()
@@ -606,7 +680,10 @@ class _TodaysRecitationScreenState extends State<TodaysRecitationScreen>
           itemBuilder: (context, index) {
             if (_showPageBismillah && index == 0) {
               return RecitationBismillah(
-                text: QuranMetadata.bismillahTextOrEmpty(),
+                text: _repo.bismillah?.words.map((w) => w.text).join(' ') ??
+                    QuranMetadata.bismillahTextOrEmpty(
+                      script: widget.settings.mushafScript,
+                    ),
                 fontSize: widget.settings.fontSize,
                 inkColor: ink,
               );
@@ -630,18 +707,25 @@ class _TodaysRecitationScreenState extends State<TodaysRecitationScreen>
         behavior:
             ScrollConfiguration.of(context).copyWith(scrollbars: false),
         child: ScrollablePositionedList.builder(
+          key: ValueKey<String>(
+            'tilawat-${widget.settings.mushafScript.name}-$_listEpoch',
+          ),
           itemScrollController: _itemScroll,
           itemPositionsListener: _positions,
           physics: MushafPinchLock.of(context)
               ? const NeverScrollableScrollPhysics()
               : null,
           initialScrollIndex: _initialScrollIndex,
+          initialAlignment: _initialAlignment,
           padding: const EdgeInsets.only(top: 12, bottom: 24),
           itemCount: _itemCount,
           itemBuilder: (context, index) {
             if (_showPageBismillah && index == 0) {
               return RecitationBismillah(
-                text: QuranMetadata.bismillahTextOrEmpty(),
+                text: _repo.bismillah?.words.map((w) => w.text).join(' ') ??
+                    QuranMetadata.bismillahTextOrEmpty(
+                      script: widget.settings.mushafScript,
+                    ),
                 fontSize: widget.settings.fontSize,
                 inkColor: ink,
               );

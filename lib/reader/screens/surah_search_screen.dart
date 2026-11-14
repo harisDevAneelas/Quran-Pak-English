@@ -246,7 +246,6 @@ class _SearchQueryFieldState extends State<_SearchQueryField> {
         autocorrect: false,
         enableSuggestions: false,
         spellCheckConfiguration: const SpellCheckConfiguration.disabled(),
-        // Theme face for Urdu UI + typed Arabic; mushaf font is for hits only.
         style: TextStyle(fontSize: 18, color: widget.ink),
         cursorColor: AppTheme.orange,
         decoration: InputDecoration(

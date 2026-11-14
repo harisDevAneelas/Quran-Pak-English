@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../core/app_theme.dart';
 import '../../core/quran_font.dart';
 import '../../data/quran_models.dart';
+import '../../quran/rendering/kfgqpc_font_scope.dart';
 
 /// Surah name between ornate brackets with side flourishes; bismillah beneath.
 class SurahHeaderBanner extends StatelessWidget {
@@ -34,9 +35,10 @@ class SurahHeaderBanner extends StatelessWidget {
     final isDark = theme.brightness == Brightness.dark;
     final page = theme.scaffoldBackgroundColor;
     final ink = inkColor ?? theme.colorScheme.onSurface;
+    final resolvedNameFamily =
+        KfgqpcFontScope.maybeFamilyOf(context) ?? nameFamily;
     const accent = AppTheme.orangeDeep;
 
-    // Sides match the page so no card edge; a light wash only in the center.
     final wash = LinearGradient(
       begin: Alignment.centerLeft,
       end: Alignment.centerRight,
@@ -66,7 +68,6 @@ class SurahHeaderBanner extends StatelessWidget {
         ? bismillah!.words.map((w) => w.text).join(' ')
         : '';
 
-    // Nastaleeq ink sits low in the line box; drop ornaments to that midline.
     const ornamentDrop = Offset(0, 6);
 
     return Directionality(
@@ -114,11 +115,10 @@ class SurahHeaderBanner extends StatelessWidget {
                       maxLines: 1,
                       softWrap: false,
                       style: QuranFont.base.copyWith(
-                        fontFamily: nameFamily,
+                        fontFamily: resolvedNameFamily,
                         fontWeight: FontWeight.w600,
                         fontSize: 22,
                         color: ink,
-                        // KFGQPC ink sits low; short line boxes clip into bismillah.
                         height: nameLineHeight,
                       ),
                     ),
@@ -157,6 +157,7 @@ class SurahHeaderBanner extends StatelessWidget {
                     applyHeightToLastDescent: false,
                   ),
                   style: QuranFont.base.copyWith(
+                    fontFamily: resolvedNameFamily,
                     fontSize: (fontSize * 0.42).clamp(12.0, 18.0),
                     color: ink,
                     height: 1.0,
@@ -291,7 +292,6 @@ class HeaderFlourishPainter extends CustomPainter {
       ..strokeWidth = 0.7
       ..strokeCap = StrokeCap.round;
 
-    // Hairline twin sits just above; main stroke becomes the fold.
     canvas.drawLine(
       Offset(nearBracket, midY - 2.0),
       Offset(joinX + 8, midY - 2.0),

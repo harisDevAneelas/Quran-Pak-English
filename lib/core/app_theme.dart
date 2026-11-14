@@ -37,7 +37,6 @@ abstract final class AppTheme {
 
   static ThemeData build(Brightness brightness) {
     final isDark = brightness == Brightness.dark;
-    // Dark screens need high-contrast ink; never leave body text near-black.
     final ink = isDark ? Colors.white : const Color(0xFF1C140C);
     final muted = isDark ? Colors.white70 : Colors.black54;
     final scheme = ColorScheme.fromSeed(

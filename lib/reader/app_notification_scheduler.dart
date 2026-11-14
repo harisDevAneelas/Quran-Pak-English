@@ -139,14 +139,12 @@ class AppNotificationScheduler {
   }
 
   Future<NotificationDetails> _namazDetails() async {
-    // Off → same default sound as surah/daily reminders (no azaan clip).
     if (!(_settings?.azaanEnabled ?? true)) return _details;
 
     final azaan = AzaanCatalog.byId(_settings?.azaanId);
     final channelId = 'com.quran_app.namaz_azaan_${azaan.id}';
     final sound = RawResourceAndroidNotificationSound(azaan.androidRawName);
 
-    // Channel sound is fixed at create time on Android — recreate per azaan id.
     if (defaultTargetPlatform == TargetPlatform.android) {
       final android = _plugin.resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin>();
@@ -195,8 +193,17 @@ class AppNotificationScheduler {
     int? confirmSurah,
     int? confirmLearnedMinutes,
   }) async {
-    if (kIsWeb) return false;
+    if (kIsWeb) {
+      debugPrint('Notifications: skipped on web (no OS local notifications).');
+      return false;
+    }
     if (!_ready) await initialize();
+
+    final allowed = await _ensurePermission(requestExact: true);
+    if (!allowed) {
+      debugPrint('Notifications: permission denied; left existing schedule.');
+      return false;
+    }
 
     await _plugin.cancel(_confirmId);
     await _plugin.cancel(_dailyId);
@@ -207,9 +214,6 @@ class AppNotificationScheduler {
       await _plugin.cancel(_prayerBaseId + i);
     }
 
-    final allowed = await _ensurePermission(requestExact: confirm);
-    if (!allowed) return false;
-
     DateTime? nextDaily;
     if (plan != null && plan.reminderEnabled) {
       nextDaily = await _scheduleDailyReminder(plan);
@@ -219,7 +223,19 @@ class AppNotificationScheduler {
         ? <int, int>{}
         : await learnedNotifyStore.loadAll();
     final nextSurah = await _scheduleTimedSurahs(learned);
-    await _schedulePrayerStarts();
+    final prayerCount = await _schedulePrayerStarts();
+
+    assert(() {
+      debugPrint(
+        'Notifications: scheduled '
+        'daily=${nextDaily != null} '
+        'nextSurah=$nextSurah '
+        'prayers=$prayerCount '
+        'coords=${PrayerTimeService.instance.hasCoords} '
+        'exact=${_androidMode == AndroidScheduleMode.exactAllowWhileIdle}',
+      );
+      return true;
+    }());
 
     if (confirm) {
       await _showConfirm(
@@ -382,12 +398,18 @@ class AppNotificationScheduler {
     return firstUpcoming;
   }
 
-  Future<void> _schedulePrayerStarts() async {
+  /// Returns how many namaz alerts were queued (0 if no location yet).
+  Future<int> _schedulePrayerStarts() async {
     final now = tz.TZDateTime.now(tz.local);
     var slot = 0;
     final namazDetails = await _namazDetails();
 
-    for (var day = 0; day < 3; day++) {
+    if (!PrayerTimeService.instance.hasCoords) {
+      debugPrint('Notifications: no location — namaz alerts not scheduled.');
+      return 0;
+    }
+
+    for (var day = 0; day < 7; day++) {
       final base = DateTime(now.year, now.month, now.day)
           .add(Duration(days: day));
       final prayers = PrayerTimeService.instance.timesFor(base);
@@ -397,6 +419,7 @@ class AppNotificationScheduler {
         final localWhen = prayers.startOf(name);
         final when = tz.TZDateTime.from(localWhen, tz.local);
         if (!when.isAfter(now)) continue;
+        if (slot >= 40) return slot;
         await _plugin.zonedSchedule(
           _prayerBaseId + slot,
           'Prayer time',
@@ -409,6 +432,7 @@ class AppNotificationScheduler {
         slot++;
       }
     }
+    return slot;
   }
 
   static tz.TZDateTime _nextInstanceOfTime(int hour, int minute) {

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/app_theme.dart';
 import '../../core/app_dimens.dart';
 import '../daily_plan.dart';
+import '../learned_notify_store.dart';
 import '../profile_manager.dart';
 import '../widgets/reader_page_scaffold.dart';
 import 'daily_plan_setup_screen.dart';
@@ -13,11 +14,13 @@ class DailyRecitationScreen extends StatelessWidget {
     super.key,
     required this.dailyPlanStore,
     required this.profiles,
+    required this.learnedNotifyStore,
     this.initialEditProfileId,
   });
 
   final DailyPlanStore dailyPlanStore;
   final ProfileManager profiles;
+  final LearnedNotifyStore learnedNotifyStore;
   final String? initialEditProfileId;
 
   static const _options = <_DailyOption>[
@@ -134,6 +137,7 @@ class DailyRecitationScreen extends StatelessWidget {
                           dailyPlanStore: dailyPlanStore,
                           profiles: profiles,
                           editProfileId: editProfileId,
+                          learnedNotifyStore: learnedNotifyStore,
                         ),
                       ),
                   ],
@@ -205,12 +209,14 @@ class _OptionCard extends StatelessWidget {
     required this.dailyPlanStore,
     required this.profiles,
     required this.editProfileId,
+    required this.learnedNotifyStore,
   });
 
   final _DailyOption option;
   final DailyPlanStore dailyPlanStore;
   final ProfileManager profiles;
   final String editProfileId;
+  final LearnedNotifyStore learnedNotifyStore;
 
   static const _cardGradient = LinearGradient(
     begin: Alignment.topCenter,
@@ -237,6 +243,7 @@ class _OptionCard extends StatelessWidget {
                 dailyPlanStore: dailyPlanStore,
                 profiles: profiles,
                 editProfileId: editProfileId,
+                learnedNotifyStore: learnedNotifyStore,
               ),
             ),
           );

@@ -68,16 +68,13 @@ class _QuranAppState extends State<QuranApp> {
 
   Future<void> _bootstrap() async {
     try {
-      // Android 12+ cannot paint splash_screen.png as the OS splash (circle
-      // icon only). Decode the PNG into Flutter's image cache, then drop the
-      // native splash so [_BootstrapSplash] can show the same artwork.
       await _revealFlutterSplash();
 
-      // Splash waits only for what the mushaf needs to paint: DB, profile,
-      // settings, fonts/metadata, divisions, and a small ayah window. Namaz
-      // notification reschedule runs after the first reader frame so warm
-      // reopen stays fast (first install may still copy the large SQLite).
-      final fontWarm = KfgqpcFontPath.resolve().then(warmJustificationShaper);
+      final fontWarm = KfgqpcFontPath.resolveAll().then((paths) async {
+        await Future.wait([
+          for (final path in paths.values) warmJustificationShaper(path),
+        ]);
+      });
       final metaWarm = QuranMetadata.load();
 
       await QuranDatabase.warmUp();
@@ -86,6 +83,7 @@ class _QuranAppState extends State<QuranApp> {
       final id = _profiles.activeProfileId!;
       _bindStores(id);
       await _settings.load(id);
+      _controller.prepareScript(_settings.mushafScript);
       AppNotificationScheduler.instance.bindSettings(_settings);
       _applyPrayerCalculation();
 
@@ -139,7 +137,6 @@ class _QuranAppState extends State<QuranApp> {
     try {
       await AppNotificationScheduler.instance.initialize();
       _applyPrayerCalculation();
-      // Cache / already-granted only — in-app لوکیشن consent runs after UI.
       await PrayerTimeService.instance.ensureLocation();
       final plan = await _dailyPlanStore.load();
       await AppNotificationScheduler.instance.rescheduleAll(
@@ -173,6 +170,9 @@ class _QuranAppState extends State<QuranApp> {
     final id = _profiles.activeProfileId;
     if (id == null) return;
     _settings.save(id);
+    if (_controller.mushafScript != _settings.mushafScript) {
+      unawaited(_controller.setMushafScript(_settings.mushafScript));
+    }
   }
 
   /// Saves the current profile, activates [id], and reloads prefs + position.
@@ -189,6 +189,7 @@ class _QuranAppState extends State<QuranApp> {
       await _profiles.select(id);
       _bindStores(id);
       await _settings.load(id);
+      await _controller.setMushafScript(_settings.mushafScript);
       await _rescheduleNotifications();
       return await _controller.reloadSavedPosition();
     } finally {
@@ -209,6 +210,7 @@ class _QuranAppState extends State<QuranApp> {
     try {
       _bindStores(switchedTo);
       await _settings.load(switchedTo);
+      await _controller.setMushafScript(_settings.mushafScript);
       await _rescheduleNotifications();
       return await _controller.reloadSavedPosition();
     } finally {
@@ -232,26 +234,27 @@ class _QuranAppState extends State<QuranApp> {
       return const _BootstrapSplash();
     }
 
-    return KfgqpcFontScope(
-      child: ListenableBuilder(
-        listenable: Listenable.merge([_settings, _profiles]),
-        child: QuranReaderScreen(
-          controller: _controller,
-          settings: _settings,
-          profiles: _profiles,
-          bookmarkStore: _bookmarkStore,
-          indexBookmarkStore: _indexBookmarkStore,
-          positionStore: _positionStore,
-          dailyPlanStore: _dailyPlanStore,
-          pinnedSurahStore: _pinnedSurahStore,
-          tilawatPositionStore: _tilawatPositionStore,
-          learnedNotifyStore: _learnedNotifyStore,
-          readerNav: _nav,
-          onSwitchProfile: switchProfile,
-          onDeleteProfile: deleteProfile,
-        ),
-        builder: (context, child) {
-          return MaterialApp(
+    return ListenableBuilder(
+      listenable: Listenable.merge([_settings, _profiles, _controller]),
+      child: QuranReaderScreen(
+        controller: _controller,
+        settings: _settings,
+        profiles: _profiles,
+        bookmarkStore: _bookmarkStore,
+        indexBookmarkStore: _indexBookmarkStore,
+        positionStore: _positionStore,
+        dailyPlanStore: _dailyPlanStore,
+        pinnedSurahStore: _pinnedSurahStore,
+        tilawatPositionStore: _tilawatPositionStore,
+        learnedNotifyStore: _learnedNotifyStore,
+        readerNav: _nav,
+        onSwitchProfile: switchProfile,
+        onDeleteProfile: deleteProfile,
+      ),
+      builder: (context, child) {
+        return KfgqpcFontScope(
+          script: _controller.mushafScript,
+          child: MaterialApp(
             title: 'Quran with English',
             debugShowCheckedModeBanner: false,
             themeMode: _settings.themeMode,
@@ -271,9 +274,9 @@ class _QuranAppState extends State<QuranApp> {
               );
             },
             home: child,
-          );
-        },
-      ),
+          ),
+        );
+      },
     );
   }
 }

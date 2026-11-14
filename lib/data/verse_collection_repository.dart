@@ -1,8 +1,10 @@
 import 'dart:convert';
 
+import '../core/mushaf_script.dart';
 import 'ayah_ref.dart';
 import 'quran_database.dart';
 import 'quran_models.dart';
+import 'quran_repository.dart';
 import 'tajweed_span_builder.dart';
 import 'verse_collections.dart';
 
@@ -17,6 +19,74 @@ abstract final class VerseCollectionRepository {
       [duaId],
     );
     return fromRows(rows);
+  }
+
+  /// Maps seeded IndoPak [VerseCollection.verses] onto [script] orthography.
+  ///
+  /// `DuaWords` stores IndoPak spans (sometimes mid-ayah). Word counts match
+  /// Uthmani, so the same start/length slice is taken from the active mushaf.
+  static Future<VerseCollection> forScript(
+    VerseCollection base,
+    MushafScript script,
+  ) async {
+    if (script == MushafScript.indopak) return base;
+
+    final target = await QuranDataRepository.forScript(script).loadFull();
+    final indopak =
+        await QuranDataRepository.forScript(MushafScript.indopak).loadFull();
+
+    final groups = <VerseGroup>[
+      for (final group in base.groups)
+        VerseGroup(
+          number: group.number,
+          ayahs: group.ayahs,
+          verses: [
+            for (var i = 0; i < group.ayahs.length; i++)
+              _verseForScript(
+                ref: group.ayahs[i],
+                stored: i < group.verses.length
+                    ? group.verses[i]
+                    : const <QuranWord>[],
+                indopak: indopak,
+                target: target,
+              ),
+          ],
+        ),
+    ];
+    return VerseCollection(id: base.id, title: base.title, groups: groups);
+  }
+
+  static List<QuranWord> _verseForScript({
+    required AyahRef ref,
+    required List<QuranWord> stored,
+    required ProcessedQuran indopak,
+    required ProcessedQuran target,
+  }) {
+    final fullTarget = target.ayahAt(ref.surah, ref.ayah)?.words ?? const [];
+    if (stored.isEmpty) return fullTarget;
+    if (stored.length == fullTarget.length) return fullTarget;
+
+    final fullIndo = indopak.ayahAt(ref.surah, ref.ayah)?.words ?? const [];
+    final start = _spanStart(fullIndo, stored);
+    if (start == null || start + stored.length > fullTarget.length) {
+      return fullTarget;
+    }
+    return fullTarget.sublist(start, start + stored.length);
+  }
+
+  static int? _spanStart(List<QuranWord> full, List<QuranWord> span) {
+    if (span.isEmpty || span.length > full.length) return null;
+    for (var i = 0; i <= full.length - span.length; i++) {
+      var match = true;
+      for (var j = 0; j < span.length; j++) {
+        if (full[i + j].text != span[j].text) {
+          match = false;
+          break;
+        }
+      }
+      if (match) return i;
+    }
+    return null;
   }
 
   static VerseCollection? fromRows(List<Map<String, Object?>> rows) {

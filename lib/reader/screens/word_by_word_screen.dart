@@ -82,7 +82,6 @@ class _WordByWordScreenState extends State<WordByWordScreen> {
   }
 
   void _onSettingsChanged() {
-    // Font size only affects layout metrics; keep pair cache.
     if (mounted) setState(() {});
   }
 
@@ -254,7 +253,6 @@ class _WordByWordScreenState extends State<WordByWordScreen> {
     try {
       await WordByWordRepository.ensureSurahLoaded(surah);
       if (!mounted) return;
-      // Urdu just arrived — invalidate cached pairs for this surah.
       _pairCache.removeWhere((key, _) => key.startsWith('$surah:'));
       setState(() {
         _loadedSurahs.add(surah);
@@ -394,7 +392,6 @@ class _WordByWordScreenState extends State<WordByWordScreen> {
                         ),
                         itemCount: MushafLayout.itemCount,
                         padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
-                        // Prefetch more off-screen rows so fling stays smooth.
                         minCacheExtent: 1200,
                         addAutomaticKeepAlives: false,
                         itemBuilder: (context, index) {
@@ -404,6 +401,7 @@ class _WordByWordScreenState extends State<WordByWordScreen> {
                             MushafHeaderSlot(:final surah) => _SurahHeader(
                               key: ValueKey('wbw-h-$surah'),
                               surah: surah,
+                              settings: widget.settings,
                             ),
                             MushafAyahSlot(:final surah, :final ayah) =>
                               _AyahBlock(
@@ -431,9 +429,14 @@ class _WordByWordScreenState extends State<WordByWordScreen> {
 }
 
 class _SurahHeader extends StatelessWidget {
-  const _SurahHeader({super.key, required this.surah});
+  const _SurahHeader({
+    super.key,
+    required this.surah,
+    required this.settings,
+  });
 
   final int surah;
+  final ReaderSettings settings;
 
   @override
   Widget build(BuildContext context) {
@@ -441,7 +444,7 @@ class _SurahHeader extends StatelessWidget {
     return SurahHeaderBanner(
       surah: header.surah,
       nameAr: header.nameAr,
-      bismillah: QuranDataRepository().bismillah,
+      bismillah: QuranDataRepository.forScript(settings.mushafScript).bismillah,
     );
   }
 }
@@ -600,7 +603,6 @@ class _WordBox extends StatelessWidget {
           width: 0.7,
         ),
       ),
-      // IndoPak ink exceeds metrics — do not clip mid-glyph.
       child: Padding(
         padding: EdgeInsets.symmetric(
           horizontal: fontSize >= 40 ? 8 : 6,

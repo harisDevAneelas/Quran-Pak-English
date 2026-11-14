@@ -60,9 +60,11 @@ flutter:
 
   assets:
     - assets/data/quran.colored.json
+    - assets/data/quran.colored.uthmani.json
     - assets/data/quran.metadata.json
     - assets/data/english_db.sqlite
     - assets/fonts/KFGQPCNastaleeq-Regular.ttf
+    - assets/fonts/DigitalKhattV2.otf
     - assets/fonts/AlQuranIndoPak.ttf
     - assets/splash/splash_screen.png
     - assets/reciters/
@@ -73,6 +75,9 @@ flutter:
     - family: KFGQPCNastaleeq
       fonts:
         - asset: assets/fonts/KFGQPCNastaleeq-Regular.ttf
+    - family: DigitalKhattV2
+      fonts:
+        - asset: assets/fonts/DigitalKhattV2.otf
     - family: AlQuranIndoPak
       fonts:
         - asset: assets/fonts/AlQuranIndoPak.ttf

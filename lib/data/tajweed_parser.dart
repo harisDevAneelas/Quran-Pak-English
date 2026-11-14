@@ -90,9 +90,12 @@ class TajweedParser {
 
       final value = entry.value as Map<String, dynamic>;
       final text = value['text'] as String;
-      final highlights = (value['highlights'] as List<dynamic>? ?? const [])
-          .map((e) => Map<String, dynamic>.from(e as Map))
-          .toList(growable: false);
+      final highlights = ensureSifrMustadirGray(
+        text,
+        (value['highlights'] as List<dynamic>? ?? const [])
+            .map((e) => Map<String, dynamic>.from(e as Map))
+            .toList(growable: false),
+      );
 
       if (text.isEmpty) {
         throw FormatException('Empty text at ${entry.key}');
@@ -164,6 +167,42 @@ class TajweedParser {
       ayahCount: ayahCount,
       wordCount: wordCount,
     );
+  }
+
+  /// U+06DF (sifr mustadir) is the small circular silent mark — keep it and
+  /// paint it gray when the colored JSON left that index uncolored.
+  static List<Map<String, dynamic>> ensureSifrMustadirGray(
+    String text,
+    List<Map<String, dynamic>> highlights,
+  ) {
+    if (!text.contains('\u06DF')) return highlights;
+
+    final byIndex = <int, Map<String, dynamic>>{
+      for (final h in highlights) h['index'] as int: h,
+    };
+    for (var i = 0; i < text.length; i++) {
+      if (text.codeUnitAt(i) != 0x06DF) continue;
+      final prev = byIndex[i];
+      final prevColor = prev?['color'] as String?;
+      if (prevColor != null && prevColor != 'gray' && prevColor != 'grey') {
+        continue;
+      }
+      final rules = <String>[
+        ...?((prev?['rules'] as List?)?.cast<String>()),
+        if (prev == null ||
+            !((prev['rules'] as List?)?.contains('orthographic_silence') ??
+                false))
+          'orthographic_silence',
+      ];
+      byIndex[i] = {
+        'index': i,
+        'char': '\u06DF',
+        'color': 'gray',
+        'rules': rules,
+      };
+    }
+    final keys = byIndex.keys.toList()..sort();
+    return [for (final k in keys) byIndex[k]!];
   }
 
   static void _debugValidate(

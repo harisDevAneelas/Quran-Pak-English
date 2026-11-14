@@ -27,7 +27,6 @@ class TajweedSpanBuilder {
         debugKey: debugKey,
       );
 
-      // Later highlights on the same index win (JSON order).
       mask[index] = color;
     }
 

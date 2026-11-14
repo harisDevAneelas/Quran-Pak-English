@@ -46,7 +46,6 @@ class _BookmarksScreenState extends State<BookmarksScreen> {
     final ayahs = await widget.bookmarkStore.load();
     if (!mounted) return;
     setState(() {
-      // Keep mark order (first bookmarked first), not surah/para number.
       _surahs = List<int>.from(surahs);
       _paras = List<int>.from(paras);
       _ayahs = ayahs;
@@ -123,7 +122,7 @@ class _BookmarksScreenState extends State<BookmarksScreen> {
                         ),
                     ],
                     if (_ayahs.isNotEmpty) ...[
-                      _SectionHeader(label: 'Ayahs', ink: ink),
+                      _SectionHeader(label: 'Ayaat', ink: ink),
                       for (final item in _ayahs)
                         _AyahRow(
                           item: item,
@@ -210,8 +209,9 @@ class _ParaRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final meta = QuranMetadata.juzOrNull(para);
-    final name = meta?.displayName ?? '';
+    final name = QuranMetadata.cached?.paraNameOrEmpty(para) ??
+        QuranMetadata.juzOrNull(para)?.displayName ??
+        '';
     final title = name.isEmpty ? 'Para $para' : 'Para $para · $name';
     return ListTile(
       onTap: onTap,

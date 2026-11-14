@@ -10,8 +10,9 @@ Flutter app. Urdu UI. One continuous mushaf, Tajweed coloring, translations, aya
 - `lib/data` — colored JSON, metadata, SQLite, Tajweed parse, translations, word-by-word, reciters, verse collections.
 - `lib/reader` — reader screen, controller, audio, sidebar, bookmarks, daily plan, profiles.
 - `lib/quran/rendering` — KFGQPC font path for the justification shaper.
-- `assets/data/quran.colored.json` — Arabic words and Tajweed highlight ranges.
-- `assets/data/quran.metadata.json` — manzil, sajda, bismillah words.
+- `assets/data/quran.colored.json` — IndoPak Arabic words and Tajweed highlight ranges.
+- `assets/data/quran.colored.uthmani.json` — Uthmani Arabic words and Tajweed highlights (DigitalKhatt mode).
+- `assets/data/quran.metadata.json` — manzil, sajda, DigitalKhatt vocalized para names (`para[].name`), and header bismillah (`bismillah.indopak` / `bismillah.uthmani`).
 - `assets/data/english_db.sqlite` — English translation columns, `Quran.words`, `Sura`, `Juz`, `QuraniDua`, and per-ayah page, ruku, and para columns. `assets/data/database.sqlite` is only the source for `tool/prepare_english_db.py`.
 - `third_party/arabic_text_justification` — local package. The web loader is patched so it can load KFGQPC by file path.
 - `tool/` — offline scripts. They are not on the reader path.

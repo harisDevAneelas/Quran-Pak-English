@@ -46,7 +46,6 @@ class TranslationRepository {
 
     try {
       final db = await QuranDatabase.instance;
-      // Yield so the first frame can paint before a heavy query.
       await Future<void>.delayed(Duration.zero);
 
       final rows = await db.rawQuery(

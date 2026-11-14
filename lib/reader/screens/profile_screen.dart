@@ -1,14 +1,18 @@
 import 'package:flutter/material.dart';
 
 import '../../core/app_theme.dart';
+import '../../core/mushaf_script.dart';
 import '../../data/ayah_ref.dart';
 import '../../data/mushaf_divisions.dart';
 import '../../data/quran_metadata.dart';
 import '../app_notification_scheduler.dart';
 import '../daily_plan.dart';
 import '../daily_range.dart';
+import '../learned_notify_store.dart';
 import '../profile.dart';
 import '../profile_manager.dart';
+import '../reader_nav_scope.dart';
+import '../reader_routes.dart';
 import '../reader_settings.dart';
 import '../tilawat_position_store.dart';
 import '../widgets/orange_app_bar.dart';
@@ -17,12 +21,8 @@ import '../widgets/reader_sidebar.dart';
 import '../../data/tilawat_order.dart';
 import '../../data/prayer_calculation_catalog.dart';
 import '../prayer_time_service.dart';
-import 'audio_language_list_screen.dart';
 import 'azaan_list_screen.dart';
 import 'daily_recitation_screen.dart';
-import 'option_list_screen.dart';
-import 'reciter_list_screen.dart';
-import 'todays_recitation_screen.dart';
 
 /// Switch profiles at the top and edit the active profile's reader preferences.
 ///
@@ -35,20 +35,24 @@ class ProfileScreen extends StatefulWidget {
     required this.settings,
     required this.dailyPlanStore,
     required this.tilawatPositionStore,
+    required this.learnedNotifyStore,
     required this.onSwitchProfile,
     required this.onDeleteProfile,
+    this.applyMushafScript,
   });
 
   final ProfileManager profiles;
   final ReaderSettings settings;
   final DailyPlanStore dailyPlanStore;
   final TilawatPositionStore tilawatPositionStore;
+  final LearnedNotifyStore learnedNotifyStore;
   final Future<({int surah, int ayah, bool openAtSurahHeader})?> Function(
     String id,
   ) onSwitchProfile;
   final Future<({int surah, int ayah, bool openAtSurahHeader})?> Function(
     String id,
   ) onDeleteProfile;
+  final Future<void> Function(MushafScript script)? applyMushafScript;
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
@@ -171,7 +175,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     try {
       final result = await widget.onDeleteProfile(profile.id);
       if (!mounted) return;
-      // Active profile changed — leave so the reader can jump safely.
       if (result != null) {
         Navigator.of(context).pop(result);
       }
@@ -191,17 +194,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Future<void> _openReciterPicker() async {
+  void _openReciterPicker() {
     if (_busy) return;
-    final choice = await Navigator.of(context).push<String>(
-      MaterialPageRoute<String>(
-        builder: (_) => ReciterListScreen(
-          selectedLabel: widget.settings.reciterLabel,
-        ),
-      ),
+    ReaderNavScope.maybeOf(context)?.nav.openDestination(
+      SidebarDestination.reciter,
     );
-    if (choice == null || !mounted) return;
-    widget.settings.setReciter(choice);
   }
 
   void _toggleAsrFiqah() {
@@ -221,8 +218,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _openAzaanPicker() async {
     if (_busy) return;
-    final choice = await Navigator.of(context).push<String>(
+    final nav = Navigator.of(context);
+    nav.popUntil((route) {
+      if (route.settings.name == ReaderRoutes.profile) return true;
+      return route.isFirst;
+    });
+    final choice = await nav.push<String>(
       MaterialPageRoute<String>(
+        settings: const RouteSettings(name: ReaderRoutes.azaan),
         builder: (_) => AzaanListScreen(
           selectedId: widget.settings.azaanId,
         ),
@@ -249,40 +252,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   Future<void> _rescheduleNotifications() async {
     final plan = await widget.dailyPlanStore.load();
-    await AppNotificationScheduler.instance.rescheduleAll(plan: plan);
+    await AppNotificationScheduler.instance.rescheduleAll(
+      plan: plan,
+      learnedNotifyStore: widget.learnedNotifyStore,
+    );
   }
 
-  Future<void> _openAudioLanguagePicker() async {
+  void _openAudioLanguagePicker() {
     if (_busy) return;
-    final choice = await Navigator.of(context).push<String>(
-      MaterialPageRoute<String>(
-        builder: (_) => AudioLanguageListScreen(
-          selectedLabel: widget.settings.audioLanguageLabel,
-        ),
-      ),
+    ReaderNavScope.maybeOf(context)?.nav.openDestination(
+      SidebarDestination.audioLanguage,
     );
-    if (choice == null || !mounted) return;
-    widget.settings.setAudioLanguage(choice);
   }
 
-  Future<void> _openTranslatorPicker() async {
+  void _openTranslatorPicker() {
     if (_busy) return;
-    final choice = await Navigator.of(context).push<List<String>>(
-      MaterialPageRoute<List<String>>(
-        builder: (_) => TranslationMultiSelectScreen(
-          selectedIds: widget.settings.translatorIds,
-        ),
-      ),
+    ReaderNavScope.maybeOf(context)?.nav.openDestination(
+      SidebarDestination.translator,
     );
-    if (!mounted || choice == null) return;
-    widget.settings.setTranslatorIds(choice);
-    if (choice.isEmpty) {
-      if (!widget.settings.hideTranslation) {
-        widget.settings.setHideTranslation(true);
-      }
-    } else if (widget.settings.hideTranslation) {
-      widget.settings.setHideTranslation(false);
-    }
   }
 
   Future<void> _openTextSize() async {
@@ -290,6 +277,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
     await showModalBottomSheet<void>(
       context: context,
       builder: (_) => TextSizeBottomSheet(settings: widget.settings),
+    );
+  }
+
+  void _openMushafScript() {
+    if (_busy) return;
+    ReaderNavScope.maybeOf(context)?.nav.openDestination(
+      SidebarDestination.mushafScript,
     );
   }
 
@@ -380,25 +374,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
         builder: (_) => DailyRecitationScreen(
           dailyPlanStore: widget.dailyPlanStore,
           profiles: widget.profiles,
+          learnedNotifyStore: widget.learnedNotifyStore,
         ),
       ),
     );
     if (mounted) await _loadPlan();
   }
 
-  Future<void> _openTodaysRecitation() async {
+  void _openTodaysRecitation() {
     if (_busy) return;
-    await Navigator.of(context).push<void>(
-      MaterialPageRoute<void>(
-        builder: (_) => TodaysRecitationScreen(
-          settings: widget.settings,
-          dailyPlanStore: widget.dailyPlanStore,
-          tilawatPositionStore: widget.tilawatPositionStore,
-          profiles: widget.profiles,
-        ),
-      ),
+    ReaderNavScope.maybeOf(context)?.nav.openDestination(
+      SidebarDestination.dailyRecitation,
     );
-    if (mounted) await _loadPlan();
   }
 
   Future<void> _setReminderEnabled(bool value) async {
@@ -421,6 +408,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     await widget.dailyPlanStore.save(updated);
     await AppNotificationScheduler.instance.rescheduleAll(
       plan: updated,
+      learnedNotifyStore: widget.learnedNotifyStore,
       confirm: value,
     );
     if (!mounted) return;
@@ -458,6 +446,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     await widget.dailyPlanStore.save(updated);
     await AppNotificationScheduler.instance.rescheduleAll(
       plan: updated,
+      learnedNotifyStore: widget.learnedNotifyStore,
       confirm: true,
     );
     if (!mounted) return;
@@ -710,6 +699,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             value: settings.tajweedEnabled,
                             enabled: enabled,
                             onChanged: settings.setTajweedEnabled,
+                          ),
+                          _PrefNavRow(
+                            icon: Icons.history_edu_outlined,
+                            title: 'Mushaf script',
+                            value: settings.mushafScriptLabel,
+                            enabled: enabled,
+                            onTap: _openMushafScript,
                           ),
                           _PrefNavRow(
                             icon: Icons.format_size,

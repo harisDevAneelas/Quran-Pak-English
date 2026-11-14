@@ -85,7 +85,6 @@ class AyahAudioController extends ChangeNotifier {
       surah: surah,
       ayah: ayah,
     );
-    // Off (or empty pack) → Arabic only; never invent a language.
     if (translation.isEmpty) return arabic;
     return switch (order) {
       TilawatOrder.recitationOnly => arabic,
@@ -181,7 +180,6 @@ class AyahAudioController extends ChangeNotifier {
       return;
     }
 
-    // Next five start downloading now (N+1 first) while this ayah loads.
     _prefetchAheadFrom(
       reciterId: this.reciterId!,
       languageId: this.audioLanguageId,
@@ -220,7 +218,6 @@ class AyahAudioController extends ChangeNotifier {
     try {
       await _player.play();
       if (ticket != _ticket) return;
-      // Web: play() finishes when the track ends. Mobile: when it starts.
       if (_player.processingState == ProcessingState.completed) {
         _requestAdvance();
       }
@@ -262,8 +259,6 @@ class AyahAudioController extends ChangeNotifier {
       }
       if (ticket != _ticket) return;
 
-      // Web often stays [ProcessingState.completed] after seek-to-zero.
-      // Reload the ayah quietly instead of throwing a stack trace.
       if (_player.processingState == ProcessingState.completed) {
         await play(
           reciterId: currentReciter,

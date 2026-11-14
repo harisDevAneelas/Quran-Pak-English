@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../core/mushaf_layout.dart';
+import '../core/mushaf_script.dart';
 import '../data/ayah_ref.dart';
 import '../data/quran_models.dart';
 import '../data/quran_repository.dart';
@@ -18,12 +19,24 @@ enum QuranLoadState { idle, loading, ready, error }
 class QuranReaderController extends ChangeNotifier {
   QuranReaderController({
     QuranDataRepository? repository,
+    MushafScript script = MushafScript.defaultScript,
     required ReadingPositionStore positionStore,
-  }) : _repository = repository ?? QuranDataRepository(),
+  }) : _script = script,
+       _repository = repository ?? QuranDataRepository.forScript(script),
        _positionStore = positionStore;
 
-  final QuranDataRepository _repository;
+  MushafScript _script;
+  QuranDataRepository _repository;
   final ReadingPositionStore _positionStore;
+
+  /// Bumps on each [setMushafScript] so a stale await cannot apply an older swap.
+  int _scriptSwitchGen = 0;
+
+  /// Bumps after a successful script apply so the mushaf list can remount.
+  int _mushafListEpoch = 0;
+
+  Future<void>? _scriptSwitchInFlight;
+  MushafScript? _scriptSwitchTarget;
 
   static const int ayahsPerScreen = 10;
   static const int screenRadius = 5;
@@ -60,6 +73,11 @@ class QuranReaderController extends ChangeNotifier {
 
   QuranLoadState get state => _state;
   Object? get error => _error;
+  MushafScript get mushafScript => _script;
+
+  /// Changes when the active mushaf face/text pair is applied — use as a list key.
+  int get mushafListEpoch => _mushafListEpoch;
+
   int get currentSurah => positionListenable.value.surah;
   int get currentAyah => positionListenable.value.ayah;
   AyahRef get initialOpenAt => _initialOpenAt;
@@ -93,7 +111,6 @@ class QuranReaderController extends ChangeNotifier {
       final saved = await _positionStore.load();
       final AyahWindow window;
       if (saved == null) {
-        // Cold start: show Surah Fatiha header (with bismillah), not ayah 1.
         _initialOpenAt = AyahRef.first;
         _openAtSurahHeader = true;
         window = firstLaunchWindow;
@@ -110,7 +127,6 @@ class QuranReaderController extends ChangeNotifier {
         positionListenable.value = (surah: center.surah, ayah: center.ayah);
       }
 
-      // Window-only parse for first paint; full mushaf continues in background.
       _absorb(await _repository.loadWindow(window));
       if (_repository.isFullyCached) {
         _absorb(await _repository.loadFull());
@@ -122,6 +138,7 @@ class QuranReaderController extends ChangeNotifier {
       }
       _state = QuranLoadState.ready;
       notifyListeners();
+      _preloadOtherScripts();
     } catch (e, st) {
       _error = e;
       _state = QuranLoadState.error;
@@ -133,21 +150,129 @@ class QuranReaderController extends ChangeNotifier {
     }
   }
 
+  /// Bind script before [initialize] (settings already loaded).
+  void prepareScript(MushafScript script) {
+    if (_state != QuranLoadState.idle) return;
+    _script = script;
+    _repository = QuranDataRepository.forScript(script);
+  }
+
+  /// Swap mushaf script using the already-cached colored JSON (no reparse).
+  ///
+  /// Loads the new script’s ayahs first, then flips [_script] + repository in
+  /// one notify. Font scope follows [_script]; flipping early painted the old
+  /// orthography with the new face (IndoPak letters → `?` under DigitalKhatt).
+  /// Concurrent calls for the same [script] share one in-flight future.
+  Future<void> setMushafScript(MushafScript script) async {
+    if (script == _script) return;
+    if (_state == QuranLoadState.idle || _state == QuranLoadState.loading) {
+      prepareScript(script);
+      return;
+    }
+
+    final inFlight = _scriptSwitchInFlight;
+    if (inFlight != null && _scriptSwitchTarget == script) {
+      await inFlight;
+      return;
+    }
+
+    final run = _setMushafScriptBody(script);
+    _scriptSwitchTarget = script;
+    _scriptSwitchInFlight = run;
+    try {
+      await run;
+    } finally {
+      if (identical(_scriptSwitchInFlight, run)) {
+        _scriptSwitchInFlight = null;
+        _scriptSwitchTarget = null;
+      }
+    }
+  }
+
+  Future<void> _setMushafScriptBody(MushafScript script) async {
+    final gen = ++_scriptSwitchGen;
+    final repo = QuranDataRepository.forScript(script);
+
+    final center = AyahRef(
+      positionListenable.value.surah,
+      positionListenable.value.ayah,
+    ).clampToSurah();
+    final (start, end) = AyahRef.windowAround(
+      center,
+      radius: windowRadiusAyahs,
+    );
+    final window = AyahWindow(start: start, end: end);
+
+    final ProcessedQuran loaded;
+    final bool fullyCached = repo.isFullyCached;
+    if (fullyCached) {
+      loaded = await repo.loadFull();
+    } else {
+      loaded = await repo.loadWindow(window);
+    }
+    if (gen != _scriptSwitchGen) return;
+
+    _script = script;
+    _repository = repo;
+    _ayahs.clear();
+    _fullyLoaded = false;
+    _fullLoadStarted = false;
+    _absorb(loaded);
+    if (fullyCached) {
+      _fullyLoaded = true;
+      _fullLoadStarted = true;
+    } else {
+      _startFullLoadInBackground();
+    }
+    _mushafListEpoch++;
+    notifyListeners();
+  }
+
+  /// Parse the inactive script once in the background so switching is instant.
+  void _preloadOtherScripts() {
+    for (final script in MushafScript.values) {
+      if (script == _script) continue;
+      unawaited(
+        QuranDataRepository.forScript(script).loadFull().then(
+          (_) {},
+          onError: (Object e, StackTrace st) {
+            assert(() {
+              debugPrint('Preload $script mushaf failed: $e\n$st');
+              return true;
+            }());
+          },
+        ),
+      );
+    }
+  }
+
   void _startFullLoadInBackground() {
     if (_fullLoadStarted || _fullyLoaded) return;
     _fullLoadStarted = true;
 
-    _repository
+    final gen = _scriptSwitchGen;
+    final repo = _repository;
+    final script = _script;
+
+    repo
         .loadFull()
         .then((full) {
+          if (gen != _scriptSwitchGen ||
+              script != _script ||
+              !identical(repo, _repository)) {
+            return;
+          }
           if (_fullyLoaded) return;
           _absorb(full);
           _fullyLoaded = true;
-          // Same list indices — only fill missing rows. No jump / no remount.
-          // Defer the list rebuild until the fling ends so scroll stays smooth.
           _notifyContentChanged();
         })
         .catchError((Object e, StackTrace st) {
+          if (gen != _scriptSwitchGen ||
+              script != _script ||
+              !identical(repo, _repository)) {
+            return;
+          }
           _fullLoadStarted = false;
           assert(() {
             debugPrint('Background full Quran load failed: $e\n$st');
@@ -240,13 +365,16 @@ class QuranReaderController extends ChangeNotifier {
     if (_fullyLoaded) return;
     if (hasAyah(surah, 1)) return;
 
+    final gen = _scriptSwitchGen;
+    final repo = _repository;
     final (start, end) = AyahRef.windowAround(
       AyahRef(surah, 1),
       radius: windowRadiusAyahs,
     );
-    final data = await _repository.loadWindow(
+    final data = await repo.loadWindow(
       AyahWindow(start: start, end: end),
     );
+    if (gen != _scriptSwitchGen || !identical(repo, _repository)) return;
     if (_fullyLoaded) return;
     _absorb(data);
     notifyListeners();
@@ -257,14 +385,17 @@ class QuranReaderController extends ChangeNotifier {
     if (_fullyLoaded) return;
     if (hasAyah(surah, ayah)) return;
 
+    final gen = _scriptSwitchGen;
+    final repo = _repository;
     final center = AyahRef(surah, ayah).clampToSurah();
     final (start, end) = AyahRef.windowAround(
       center,
       radius: windowRadiusAyahs,
     );
-    final data = await _repository.loadWindow(
+    final data = await repo.loadWindow(
       AyahWindow(start: start, end: end),
     );
+    if (gen != _scriptSwitchGen || !identical(repo, _repository)) return;
     if (_fullyLoaded) return;
     _absorb(data);
     notifyListeners();

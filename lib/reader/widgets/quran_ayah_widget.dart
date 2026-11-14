@@ -34,9 +34,13 @@ bool warmQuranAyahLines({
   );
 }
 
-/// Ayah line from precomputed word color ranges. End-of-ayah digits only
-/// (U+0660–U+0669); do not prefix U+06DD.
+/// Ayah line from precomputed word color ranges.
+///
+/// IndoPak end marks are Arabic-Indic digits only (U+0660–U+0669).
+/// Uthmani (DigitalKhatt) prefixes U+06DD so the face ligates `endofayaN`.
 class QuranAyahWidget extends StatefulWidget {
+  /// DigitalKhatt `endofayaN` vs body size (paint + pack width).
+  static const double uthmaniEndMarkerScale = 0.82;
   const QuranAyahWidget({
     super.key,
     required this.ayah,
@@ -72,10 +76,12 @@ class QuranAyahWidget extends StatefulWidget {
 
 class _QuranAyahWidgetState extends State<QuranAyahWidget> {
   static double? _cacheFontSize;
+  static String? _cacheFontFamily;
   static final Map<String, double> _widthCache = <String, double>{};
   static double? _spaceWidthCache;
 
   static double? _packCacheFontSize;
+  static String? _packCacheFontPath;
   static bool? _packCacheHbReady;
   static final Map<String, _PackedAyah> _packCache = <String, _PackedAyah>{};
   static const int _packCacheMax = 400;
@@ -85,6 +91,7 @@ class _QuranAyahWidgetState extends State<QuranAyahWidget> {
   @override
   Widget build(BuildContext context) {
     final fontPath = KfgqpcFontScope.of(context);
+    final fontFamily = KfgqpcFontScope.familyOf(context);
     final rukuMark = widget.rukuMark;
     final screenW = MediaQuery.sizeOf(context).width;
     final hbReady = peekJustificationShaper(fontPath) != null;
@@ -100,8 +107,6 @@ class _QuranAyahWidgetState extends State<QuranAyahWidget> {
       });
     }
 
-    // The line itself stays right to left even when the page chrome is
-    // left to right. A parent LTR row would park the opening word on the left.
     return Directionality(
       textDirection: TextDirection.rtl,
       child: LayoutBuilder(
@@ -112,6 +117,7 @@ class _QuranAyahWidgetState extends State<QuranAyahWidget> {
               .clamp(120.0, 4000.0);
           return _buildPacked(
             fontPath: fontPath,
+            fontFamily: fontFamily,
             maxW: maxW,
             hbReady: hbReady,
             rukuMark: rukuMark,
@@ -123,12 +129,14 @@ class _QuranAyahWidgetState extends State<QuranAyahWidget> {
 
   Widget _buildPacked({
     required String? fontPath,
+    required String fontFamily,
     required double maxW,
     required bool hbReady,
     required RukuMarkInfo? rukuMark,
   }) {
     final packed = _cachedPack(
       fontPath: fontPath,
+      fontFamily: fontFamily,
       maxWidth: maxW,
       hbReady: hbReady,
     );
@@ -138,10 +146,16 @@ class _QuranAyahWidgetState extends State<QuranAyahWidget> {
     final openingSize = widget.fontSize * 1.18;
     final openingStroke = openingSize * 0.02;
 
+    final uthmaniMarker = fontFamily == QuranFont.digitalKhattFamily &&
+        widget.showEndMarker;
+    final markerToken = uthmaniMarker ? '\u06DD' : null;
+    final markerFontSize = uthmaniMarker
+        ? widget.fontSize * QuranAyahWidget.uthmaniEndMarkerScale
+        : null;
+
     Widget line(_HbRow row, {required bool ain, required double slotWidth}) {
-      final words = [for (final cell in row.cells) cell.text];
       final painted = JustifiedArabicLine(
-        words: words,
+        words: [for (final cell in row.cells) cell.text],
         fontPath: fontPath,
         fontSize: widget.fontSize,
         justify: false,
@@ -150,7 +164,10 @@ class _QuranAyahWidgetState extends State<QuranAyahWidget> {
             ? _spansForRow(row, widget.inkColor)
             : const [],
         alignment: widget.alignment,
+        marker: markerToken,
+        markerFontSize: markerFontSize,
       );
+
       if (!ain || rukuMark == null || !widget.showEndMarker) {
         return painted;
       }
@@ -158,8 +175,8 @@ class _QuranAyahWidgetState extends State<QuranAyahWidget> {
       if (markerIndex == null || markerIndex < 0) return painted;
       final beforeW = packed.beforeMarkerWidth ?? 0.0;
       final markerW = packed.markerWidth ?? 0.0;
-      final gap = markerIndex == 0 ? 0.0 : _spaceWidth(widget.fontSize);
-      // KFGQPC oval ink starts ~0.38em below the line top.
+      final gap =
+          markerIndex == 0 ? 0.0 : _spaceWidth(widget.fontSize, fontFamily);
       final ovalTop = widget.fontSize * ((2400 - 1022) / 2048);
       final chip = (widget.fontSize * 0.50).clamp(18.0, 24.0);
       final glyph = chip * 0.70;
@@ -254,7 +271,7 @@ class _QuranAyahWidgetState extends State<QuranAyahWidget> {
                 ),
               ),
               if (rest.isNotEmpty) ...[
-                SizedBox(width: _spaceWidth(openingSize)),
+                SizedBox(width: _spaceWidth(openingSize, fontFamily)),
                 Expanded(
                   child: line(
                     rest.first,
@@ -284,10 +301,11 @@ class _QuranAyahWidgetState extends State<QuranAyahWidget> {
 
   _PackedAyah _cachedPack({
     required String? fontPath,
+    required String fontFamily,
     required double maxWidth,
     required bool hbReady,
   }) {
-    _ensurePackCache(widget.fontSize, hbReady);
+    _ensurePackCache(widget.fontSize, hbReady, fontPath);
     final openingCount = widget.emphasizedWordCount
         .clamp(0, widget.ayah.words.length)
         .toInt();
@@ -316,6 +334,7 @@ class _QuranAyahWidgetState extends State<QuranAyahWidget> {
       ayah: widget.ayah,
       fontSize: widget.fontSize,
       fontPath: fontPath,
+      fontFamily: fontFamily,
       maxWidth: maxWidth,
       emphasizedWordCount: widget.emphasizedWordCount,
       showEndMarker: widget.showEndMarker,
@@ -347,12 +366,19 @@ class _QuranAyahWidgetState extends State<QuranAyahWidget> {
         '$openingCount:${words.length}:$first:$last';
   }
 
-  static void _ensurePackCache(double fontSize, bool hbReady) {
-    if (_packCacheFontSize == fontSize && _packCacheHbReady == hbReady) {
+  static void _ensurePackCache(
+    double fontSize,
+    bool hbReady,
+    String? fontPath,
+  ) {
+    if (_packCacheFontSize == fontSize &&
+        _packCacheHbReady == hbReady &&
+        _packCacheFontPath == fontPath) {
       return;
     }
     _packCacheFontSize = fontSize;
     _packCacheHbReady = hbReady;
+    _packCacheFontPath = fontPath;
     _packCache.clear();
   }
 
@@ -368,7 +394,7 @@ class _QuranAyahWidgetState extends State<QuranAyahWidget> {
   }) {
     final shaper = peekJustificationShaper(fontPath);
     if (shaper == null || fontSize <= 0) return false;
-    _ensurePackCache(fontSize, true);
+    _ensurePackCache(fontSize, true, fontPath);
     final openingCount = emphasizedWordCount.clamp(0, ayah.words.length).toInt();
     final key = _packKey(
       ayah: ayah,
@@ -385,6 +411,7 @@ class _QuranAyahWidgetState extends State<QuranAyahWidget> {
         ayah: ayah,
         fontSize: fontSize,
         fontPath: fontPath,
+        fontFamily: _familyForFontPath(fontPath),
         maxWidth: maxWidth,
         emphasizedWordCount: emphasizedWordCount,
         showEndMarker: showEndMarker,
@@ -423,17 +450,25 @@ class _QuranAyahWidgetState extends State<QuranAyahWidget> {
     return queued;
   }
 
+  static String _familyForFontPath(String? fontPath) {
+    if (fontPath != null && fontPath.contains('DigitalKhatt')) {
+      return QuranFont.digitalKhattFamily;
+    }
+    return QuranFont.family;
+  }
+
   static _PackedAyah packAyah({
     required QuranAyahChunk ayah,
     required double fontSize,
     required String? fontPath,
+    required String fontFamily,
     required double maxWidth,
     required int emphasizedWordCount,
     required bool showEndMarker,
     required bool showRubMarker,
   }) {
     final trailingMarkers = <String>[
-      if (showEndMarker) _toEasternDigits(ayah.ayah),
+      if (showEndMarker) _endMarkerText(ayah.ayah, fontFamily),
       if (showRubMarker) QuranAyahWidget.rubGlyph,
     ];
     final openingCount = emphasizedWordCount.clamp(0, ayah.words.length).toInt();
@@ -461,8 +496,9 @@ class _QuranAyahWidgetState extends State<QuranAyahWidget> {
         openingCells,
         fontSize: openingSize,
         fontPath: fontPath,
+        fontFamily: fontFamily,
       );
-      final gap = _spaceWidth(openingSize);
+      final gap = _spaceWidth(openingSize, fontFamily);
       final reserved = openingWidth + openingStroke + 2 + gap;
       firstLineMax = (maxWidth - reserved).clamp(0.0, maxWidth);
       bodyWords = ayah.words.skip(openingCount).toList(
@@ -482,16 +518,18 @@ class _QuranAyahWidgetState extends State<QuranAyahWidget> {
       maxWidth: maxWidth,
       firstLineMaxWidth: emphasize ? firstLineMax : null,
       fontPath: fontPath,
+      fontFamily: fontFamily,
+      endMarkFontPath: fontPath,
     );
 
     int? endMarkerIndex;
     double? beforeMarkerWidth;
     double? markerWidth;
     if (showEndMarker && rows.isNotEmpty) {
-      final digits = _toEasternDigits(ayah.ayah);
+      final markerText = _endMarkerText(ayah.ayah, fontFamily);
       final last = rows.last;
       final markerIndex = last.cells.indexWhere(
-        (cell) => cell.isMarker && cell.text == digits,
+        (cell) => cell.isMarker && cell.text == markerText,
       );
       if (markerIndex >= 0) {
         endMarkerIndex = markerIndex;
@@ -501,11 +539,16 @@ class _QuranAyahWidgetState extends State<QuranAyahWidget> {
                 last.cells.sublist(0, markerIndex),
                 fontSize: fontSize,
                 fontPath: fontPath,
+                fontFamily: fontFamily,
               );
+        final markSize = fontFamily == QuranFont.digitalKhattFamily
+            ? fontSize * QuranAyahWidget.uthmaniEndMarkerScale
+            : fontSize;
         markerWidth = _rowWidth(
           [last.cells[markerIndex]],
-          fontSize: fontSize,
+          fontSize: markSize,
           fontPath: fontPath,
+          fontFamily: fontFamily,
         );
       }
     }
@@ -533,33 +576,35 @@ class _QuranAyahWidgetState extends State<QuranAyahWidget> {
     ];
   }
 
-  static void _ensureCache(double fontSize) {
-    if (_cacheFontSize == fontSize) return;
+  static void _ensureCache(double fontSize, String fontFamily) {
+    if (_cacheFontSize == fontSize && _cacheFontFamily == fontFamily) return;
     _cacheFontSize = fontSize;
+    _cacheFontFamily = fontFamily;
     _widthCache.clear();
     _spaceWidthCache = null;
   }
 
-  static double _spaceWidth(double fontSize) {
-    _ensureCache(fontSize);
-    return _spaceWidthCache ??= _layoutWidth(' ', fontSize);
+  static double _spaceWidth(double fontSize, String fontFamily) {
+    _ensureCache(fontSize, fontFamily);
+    return _spaceWidthCache ??= _layoutWidth(' ', fontSize, fontFamily);
   }
 
-  static double _measureWidth(String text, double fontSize) {
-    _ensureCache(fontSize);
+  static double _measureWidth(String text, double fontSize, String fontFamily) {
+    _ensureCache(fontSize, fontFamily);
     final cached = _widthCache[text];
     if (cached != null) return cached;
-    final width = _layoutWidth(text, fontSize);
+    final width = _layoutWidth(text, fontSize, fontFamily);
     _widthCache[text] = width;
     return width;
   }
 
-  static double _layoutWidth(String text, double fontSize) {
+  static double _layoutWidth(String text, double fontSize, String fontFamily) {
     final painter = TextPainter(
       text: TextSpan(
         text: text,
         style: TextStyle(
-          fontFamily: QuranFont.family,
+          fontFamily: fontFamily,
+          fontFamilyFallback: const <String>[],
           fontSize: fontSize,
           height: 1.0,
         ),
@@ -574,8 +619,38 @@ class _QuranAyahWidgetState extends State<QuranAyahWidget> {
     List<_HbCell> cells, {
     required double fontSize,
     required String? fontPath,
+    required String fontFamily,
+    String? endMarkFontPath,
   }) {
     if (cells.isEmpty) return 0;
+    final markPath = endMarkFontPath ?? fontPath;
+    if (markPath != fontPath && cells.any((c) => c.isMarker)) {
+      final gap = _spaceWidth(fontSize, fontFamily);
+      var used = 0.0;
+      for (var i = 0; i < cells.length; i++) {
+        if (i > 0) used += gap;
+        final cell = cells[i];
+        if (cell.isMarker && cell.text != QuranAyahWidget.rubGlyph) {
+          used += measureJustificationWordsWidth(
+                words: [cell.text],
+                fontSize: fontSize,
+                fontPath: markPath,
+              ) ??
+              _measureWidth(cell.text, fontSize, QuranFont.family);
+        } else if (cell.isMarker) {
+          used += _measureWidth(cell.text, fontSize, fontFamily);
+        } else {
+          used += measureJustificationWordsWidth(
+                words: [cell.text],
+                fontSize: fontSize,
+                fontPath: fontPath,
+              ) ??
+              _measureWidth(cell.text, fontSize, fontFamily);
+        }
+      }
+      return used;
+    }
+
     final hb = measureJustificationWordsWidth(
       words: [for (final c in cells) c.text],
       fontSize: fontSize,
@@ -583,11 +658,11 @@ class _QuranAyahWidgetState extends State<QuranAyahWidget> {
     );
     if (hb != null) return hb;
 
-    final gap = _spaceWidth(fontSize);
+    final gap = _spaceWidth(fontSize, fontFamily);
     var used = 0.0;
     for (var i = 0; i < cells.length; i++) {
       if (i > 0) used += gap;
-      used += _measureWidth(cells[i].text, fontSize);
+      used += _measureWidth(cells[i].text, fontSize, fontFamily);
     }
     return used;
   }
@@ -599,8 +674,9 @@ class _QuranAyahWidgetState extends State<QuranAyahWidget> {
     required double maxWidth,
     double? firstLineMaxWidth,
     required String? fontPath,
+    required String fontFamily,
+    String? endMarkFontPath,
   }) {
-    // Tiny slack so rounding / HB vs box differences don't orphan the last word.
     final fullLimit = maxWidth + 0.5;
     var limit = (firstLineMaxWidth ?? maxWidth) + 0.5;
     var onFirstLine = firstLineMaxWidth != null;
@@ -632,13 +708,12 @@ class _QuranAyahWidgetState extends State<QuranAyahWidget> {
         trial,
         fontSize: fontSize,
         fontPath: fontPath,
+        fontFamily: fontFamily,
+        endMarkFontPath: endMarkFontPath,
       );
       if (current.isNotEmpty && trialW > limit) {
-        // Keep trailing markers glued to the last word — never alone
-        // on the next line. Pull the previous word onto the new row with it.
         if (cell.isMarker && current.isNotEmpty) {
           final last = current.removeLast();
-          // Keep earlier marker cells with that word when a later mark wraps.
           final pulled = <_HbCell>[];
           while (current.isNotEmpty && current.last.isMarker) {
             pulled.add(current.removeLast());
@@ -656,8 +731,7 @@ class _QuranAyahWidgetState extends State<QuranAyahWidget> {
     return rows;
   }
 
-  /// Arabic-Indic digits (U+0660–U+0669) — KFGQPC ligates these into the
-  /// numbered end-of-ayah glyph (`a00X_a00Y_…`).
+  /// Arabic-Indic digits (U+0660–U+0669).
   static String _toEasternDigits(int value) {
     const eastern = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
     final raw = value.toString();
@@ -671,6 +745,16 @@ class _QuranAyahWidgetState extends State<QuranAyahWidget> {
       }
     }
     return buffer.toString();
+  }
+
+  /// IndoPak: digits only (KFGQPC circled ligatures).
+  /// DigitalKhatt: U+06DD + digits → `endofayaN` ligature in the same face.
+  static String _endMarkerText(int ayah, String fontFamily) {
+    final digits = _toEasternDigits(ayah);
+    if (fontFamily == QuranFont.digitalKhattFamily) {
+      return '\u06DD$digits';
+    }
+    return digits;
   }
 }
 
@@ -712,7 +796,7 @@ class _HbRow {
   final List<_HbCell> cells;
 }
 
-/// Small filled circle in the gap above the ayah oval.
+/// Small filled circle in the IndoPak gap on the ayah oval.
 class _RukuAinChip extends StatelessWidget {
   const _RukuAinChip({
     required this.size,
@@ -755,7 +839,7 @@ class _RukuAinPainter extends CustomPainter {
         text: QuranAyahWidget.rukuGlyph,
         style: TextStyle(
           fontFamily: QuranFont.family,
-          fontFamilyFallback: const [],
+          fontFamilyFallback: const <String>[],
           fontSize: glyphSize,
           height: 1.0,
           color: _glyphColor,
@@ -769,7 +853,6 @@ class _RukuAinPainter extends CustomPainter {
     final baseline = painter.computeDistanceToActualBaseline(
       TextBaseline.alphabetic,
     );
-    // KFGQPC ع ink sits just above the baseline (yMax 1016, yMin −906).
     const inkCenterAboveBaseline = 55 / 2048;
     final dx = (size.width - painter.width) / 2;
     final dy = size.height / 2 -

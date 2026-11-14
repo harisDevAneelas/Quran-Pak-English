@@ -122,7 +122,6 @@ class _MushafPinchZoomState extends State<MushafPinchZoom> {
     final amplified = 1.0 + (rawScale - 1.0) * widget.sensitivity;
     final raw = (_baseFontSize * amplified)
         .clamp(widget.minFontSize, widget.maxFontSize);
-    // Half-point steps: smoother grip with fewer reshapes than every px.
     final next = (raw * 2).roundToDouble() / 2;
     if (next == _pendingSize) return;
     _pendingSize = next;

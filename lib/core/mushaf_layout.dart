@@ -43,7 +43,6 @@ abstract final class MushafLayout {
   /// Resolves a list index to a header or ayah slot.
   static MushafSlot slotAt(int itemIndex) {
     assert(itemIndex >= 0 && itemIndex < itemCount);
-    // Binary search the surah whose header index is <= itemIndex.
     var lo = 1;
     var hi = 114;
     while (lo < hi) {

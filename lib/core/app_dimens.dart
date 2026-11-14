@@ -11,7 +11,6 @@ abstract final class AppDimens {
   /// Narrowest scale factor (iPhone SE / mini).
   static const double scaleFloor = 0.75;
 
-  // --- Fonts (reference px) ---
   static const double fontAppBar = 18;
   static const double fontAppBarMin = 12;
   static const double fontHubTitle = 20;
@@ -44,7 +43,6 @@ abstract final class AppDimens {
   static const double fontPlayingAyahSurahMin = 12;
   static const double fontPlayingAyahNumber = 13;
 
-  // --- Hub grid ---
   static const double hubGap = 12;
   static const double hubPadH = 14;
   static const double hubPadV = 16;
@@ -53,24 +51,23 @@ abstract final class AppDimens {
   static const double hubTilePadH = 10;
   static const double hubTilePadV = 8;
 
-  // --- Surah / para index grids ---
   static const double indexGap = 12;
   static const double indexPadH = 14;
   static const double indexPadV = 12;
   static const double indexTileMinHeight = 88;
+  static const double indexParaTileHeight = 72;
   static const double indexTileRadius = 14;
   static const double indexBadgeSize = 32;
   static const double indexStarSize = 22;
   static const double indexStarTap = 36;
   static const double fontIndexTitle = 20;
+  static const double fontIndexParaTitle = 16;
   static const double fontIndexBadge = 14;
 
-  // --- Ayah actions ---
   static const double actionCircle = 76;
   static const double actionCircleFloor = 0.88;
   static const double actionLabelGap = 8;
 
-  // --- Daily-plan type picker ---
   static const double dailyGap = 14;
   static const double dailyPadH = 20;
   static const double dailyPadTop = 28;
@@ -78,7 +75,6 @@ abstract final class AppDimens {
   static const double dailyCellMin = 120;
   static const double dailyChrome = 190;
 
-  // --- Buttons ---
   static const double doneWideW = 168;
   static const double doneWideH = 44;
   static const double doneW = 72;

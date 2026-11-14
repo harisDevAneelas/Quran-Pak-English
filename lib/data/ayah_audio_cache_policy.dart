@@ -4,7 +4,7 @@ abstract final class AyahAudioCachePolicy {
   static const maxAge = Duration(days: 60);
 
   /// Soft cap: oldest files are removed until total size is under this.
-  static const maxBytes = 300 * 1024 * 1024; // 300 MB
+  static const maxBytes = 300 * 1024 * 1024;
 }
 
 /// One cached file for eviction decisions.

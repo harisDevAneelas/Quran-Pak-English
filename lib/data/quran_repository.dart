@@ -3,18 +3,29 @@ import 'dart:isolate';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
+import '../core/mushaf_script.dart';
 import 'ayah_ref.dart';
 import 'quran_metadata.dart';
 import 'quran_models.dart';
 import 'tajweed_parser.dart';
 
-/// Loads the mushaf from `quran.colored.json` (shared full parse + window).
+/// Loads the mushaf from a colored JSON asset (shared full parse + window).
 class QuranDataRepository {
   QuranDataRepository({
     this.fullAssetPath = 'assets/data/quran.colored.json',
+    this.script = MushafScript.indopak,
   });
 
+  factory QuranDataRepository.forScript(MushafScript script) {
+    return QuranDataRepository(
+      fullAssetPath: script.coloredAssetPath,
+      script: script,
+    );
+  }
+
   final String fullAssetPath;
+
+  final MushafScript script;
 
   static final Map<String, ProcessedQuran> _sharedFull = {};
   static final Map<String, Future<ProcessedQuran>> _sharedInFlight = {};
@@ -47,7 +58,7 @@ class QuranDataRepository {
     return _parseJson(jsonString, window: window);
   }
 
-  /// Full mushaf from `quran.colored.json` (one parse per asset path).
+  /// Full mushaf from the colored JSON (one parse per asset path).
   Future<ProcessedQuran> loadFull() {
     final cached = _sharedFull[fullAssetPath];
     if (cached != null) return SynchronousFuture(cached);
@@ -92,13 +103,11 @@ class QuranDataRepository {
     String jsonString, {
     AyahWindow? window,
   }) async {
-    // ~22MB JSON: keep decode/parse off the UI isolate when possible.
     if (kIsWeb) {
       await Future<void>.delayed(Duration.zero);
       return TajweedParser.parseJsonString(jsonString, window: window);
     }
 
-    // Pass plain ints so the isolate message stays simple.
     final startSurah = window?.start.surah;
     final startAyah = window?.start.ayah;
     final endSurah = window?.end.surah;
@@ -154,13 +163,12 @@ class QuranDataRepository {
     );
   }
 
-  /// Loads plain bismillah words from metadata (no Tajweed).
+  /// Loads plain bismillah words (no Tajweed).
   Future<void> _ensureBismillah() async {
     if (_sharedBismillah.containsKey(fullAssetPath)) return;
-    final meta = await QuranMetadata.load();
-    final texts = meta.bismillahWords;
+    final texts = await _loadBismillahTexts();
     if (texts.isEmpty) {
-      throw StateError('Missing bismillah.words in quran.metadata.json');
+      throw StateError('Missing bismillah words for $fullAssetPath');
     }
     _sharedBismillah[fullAssetPath] = QuranAyahChunk(
       surah: 0,
@@ -169,5 +177,10 @@ class QuranDataRepository {
         for (final text in texts) QuranWord(text: text),
       ]),
     );
+  }
+
+  Future<List<String>> _loadBismillahTexts() async {
+    final meta = await QuranMetadata.load();
+    return meta.bismillahWordsFor(script);
   }
 }

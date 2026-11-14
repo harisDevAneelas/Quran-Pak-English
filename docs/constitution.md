@@ -4,19 +4,24 @@ These are already true. A plan or a code change that breaks one of them is wrong
 
 ## Mushaf text
 
-- Paint mushaf Arabic with `KFGQPCNastaleeq` and an empty `fontFamilyFallback`. That includes the main reader and its headers. The justification shaper loads this file only (`lib/quran/rendering/kfgqpc_font_path.dart`), never Madinah or DigitalKhatt.
-- Word-by-word Arabic uses `AlQuranIndoPak` (`QuranFont.wordByWordFamily`) with an empty `fontFamilyFallback`. It does not use `KFGQPCNastaleeq`.
+- Paint mushaf Arabic with the **active** mushaf face and an empty `fontFamilyFallback`. IndoPak mode uses `KFGQPCNastaleeq` + `quran.colored.json`. Uthmani mode uses `DigitalKhattV2` + `quran.colored.uthmani.json`. Headers follow the same active face. The justification shaper loads the active face path (`lib/quran/rendering/kfgqpc_font_path.dart`); both faces may be warmed once at bootstrap.
+- Word-by-word Arabic uses `AlQuranIndoPak` (`QuranFont.wordByWordFamily`) with an empty `fontFamilyFallback`. It does not use the mushaf face.
 - Do not fall back to a system Arabic font.
-- Keep line height at or above `QuranFont.recommendedLineHeight` (2.0). KFGQPC ink exceeds its declared ascent and descent, so parents must not clip it.
+- Keep line height at or above `QuranFont.recommendedLineHeight` (2.0). Tall mushaf ink exceeds its declared ascent and descent, so parents must not clip it.
 - The colored JSON stores plain Unicode words. Shaping happens at paint time. Do not reverse strings or invent ligatures.
-- End-of-ayah markers are Arabic-Indic digits (U+0660–U+0669) only. Do not prefix U+06DD.
+- End-of-ayah markers use Arabic-Indic digits (U+0660–U+0669). IndoPak (KFGQPC): digits only — the face ligates them into circled marks. Uthmani (DigitalKhatt): prefix U+06DD so GSUB selects `endofayaN` in the same face; paint that mark slightly smaller than the body (`QuranAyahWidget.uthmaniEndMarkerScale`). Do not paint Uthmani end marks with the Nastaleeq face.
+- Script switches load the new orthography before flipping the active face. In-flight window/full absorbs from the previous script must not write into the map after a switch.
 
 ## Tajweed
 
-- Color comes only from `highlights` in `quran.colored.json`, merged into word color ranges at parse time.
+- Color comes only from `highlights` in the active colored JSON (`quran.colored.json` or `quran.colored.uthmani.json`), merged into word color ranges at parse time.
 - Highlight `index` values are UTF-16 code units, half-open `[start, end)`. Do not convert them with grapheme clusters.
 - Scroll and layout code maps those precomputed ranges to paint colors. It does not re-parse JSON, re-validate highlights, or guess colors from harakat.
 - Turning Tajweed off in settings changes paint, not the parsed data.
+- Muqatta'at in Uthmani (`الٓمٓ`, `كٓهيعٓصٓ`, …) have empty `highlights` in `quran.colored.uthmani.json`.
+- IndoPak JSON uses green / red / blue. Uthmani JSON uses: gray (silent, including U+06DF), light orange (separated/arid madd), red (connected madd), maroon (necessary madd), green (ghunnah/ikhfa), cyan (qalqala), purple→indigo (tafkheem). Do not color natural two-count madd (tabii/badal/iwad/silah/leen).
+- Keep U+06DF in Uthmani text; paint it gray when uncolored (`ensureSifrMustadirGray` / build tool).
+- Ruku ع chip placement matches IndoPak (small gap on the ayah oval), for both scripts.
 
 ## Numbering
 
@@ -27,10 +32,10 @@ These are already true. A plan or a code change that breaks one of them is wrong
 
 ## Content files
 
-- Arabic and Tajweed on the main mushaf come from `assets/data/quran.colored.json` only. The reader does not load per-surah JSON slices.
-- Translations, word-by-word glosses, surah names, surah introductions, and surah/juz display fields come from `assets/data/english_db.sqlite`. Hub verse lists (Ayaat-e-shifa, Forty Rabbana, Manzil, Ruqyah) come from `QuraniDua`. Those screens paint `DuaWords` (JSON words and Tajweed highlights copied at seed). `DuaText` is not read by the app. Page, ruku, and para boundaries come from `Quran.PageNum1`, `RukuStart`, `ParaStart`, and `ParaRubaStart`. Each surah's para and page come from `Sura`. Para list titles use `Juz.UrduName`, the Arabic opening of each para. `Juz.EngName` stays the phonetic title on other screens. `Juz.UrduName` is also the short Arabic opening used to count painted para-name words. The word-by-word screen reads `Quran.words` (`[arabic:english]`). An empty cell shows no word boxes. The database is opened read-only after a one-time copy to `quran_app_en_v1.sqlite`. After replacing the asset database, bump that copy name so existing installs recopy it.
-- Do not hand-edit `quran.colored.json`, `quran.metadata.json`, or `english_db.sqlite` to fix a screen. Change the English database with `tool/prepare_english_db.py`, then verify the reader.
-- `tool/split_quran_json.py` is offline. Do not wire it into the app.
+- Arabic and Tajweed on the main mushaf come from the active colored JSON (`quran.colored.json` or `quran.colored.uthmani.json`) only. The reader does not load per-surah JSON slices.
+- Translations, word-by-word glosses, surah names, surah introductions, and surah/juz display fields come from `assets/data/english_db.sqlite`. Hub verse lists (Ayaat-e-shifa, Forty Rabbana, Manzil, Ruqyah) come from `QuraniDua`. Seeded `DuaWords` are IndoPak spans; at paint time `VerseCollectionRepository.forScript` maps the same word-index span onto the active mushaf JSON. `DuaText` is not read by the app. Page, ruku, and para boundaries come from `Quran.PageNum1`, `RukuStart`, `ParaStart`, and `ParaRubaStart`. Each surah's para and page come from `Sura`. Para list and about titles use vocalized Uthmani openings from `quran.metadata.json` (`para[].name`), taken from DigitalKhatt mushaf words and painted with `DigitalKhattV2`. `Juz.UrduName` is fallback only. Do not show `Juz.EngName` as the para title. Do not hand-edit the SQLite `Juz` table for these labels. The word-by-word screen reads `Quran.words` (`[arabic:english]`). An empty cell shows no word boxes. The database is opened read-only after a one-time copy to `quran_app_en_v1.sqlite`. After replacing the asset database, bump that copy name so existing installs recopy it.
+- Do not hand-edit `quran.colored.json`, `quran.colored.uthmani.json`, `quran.metadata.json`, or `english_db.sqlite` to fix a screen. Rebuild Uthmani colored JSON with `tool/build_uthmani_colored_json.py`. Change the English database with `tool/prepare_english_db.py`, then verify the reader.
+- `tool/split_quran_json.py` and `tool/build_uthmani_colored_json.py` are offline. Do not wire them into the app.
 
 ## Dark UI text
 
@@ -41,7 +46,7 @@ These are already true. A plan or a code change that breaks one of them is wrong
 - Reading position, bookmarks, daily plan, and reader settings are stored per profile under `p:{profileId}:{base}` in SharedPreferences.
 - Profile list and active id are global (`profiles_v1`, `active_profile_id`). The last profile cannot be deleted.
 - Switching profiles saves the current settings, rebinds the stores, then loads the new profile. Do not write settings while `applyingProfile` is set or while a switch is in progress.
-- Changing reader settings must not reparse the Quran JSON or reload fonts.
+- Changing reader settings must not reparse the Quran JSON or reload fonts. Switching mushaf script only swaps which already-warmed face and already-parsed colored JSON are active.
 
 ## Startup and audio
 

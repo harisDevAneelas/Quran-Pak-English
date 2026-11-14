@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:scrollable_positioned_list/scrollable_positioned_list.dart';
 
+import '../../core/mushaf_script.dart';
 import '../../data/ayah_ref.dart';
 import '../../data/quran_metadata.dart';
 import '../../data/quran_models.dart';
+import '../../data/quran_repository.dart';
+import '../../data/verse_collection_repository.dart';
 import '../../data/verse_collections.dart';
 import '../reader_settings.dart';
 import '../widgets/mushaf_pinch_zoom.dart';
@@ -17,6 +21,7 @@ class VerseCollectionScreen extends StatefulWidget {
     required this.settings,
   });
 
+  /// Seeded IndoPak `DuaWords` + ayah refs from `QuraniDua`.
   final VerseCollection collection;
   final ReaderSettings settings;
 
@@ -25,49 +30,146 @@ class VerseCollectionScreen extends StatefulWidget {
 }
 
 class _VerseCollectionScreenState extends State<VerseCollectionScreen> {
-  late final Future<QuranMetadata> _metaFuture = QuranMetadata.load();
-  final ScrollController _scroll = ScrollController();
-  double? _pinchScrollFrac;
+  final ItemScrollController _itemScroll = ItemScrollController();
+  final ItemPositionsListener _positions = ItemPositionsListener.create();
+  final GlobalKey _pinchKey = GlobalKey();
+
+  int? _pinchAnchorIndex;
+  double? _pinchAnchorAlignment;
+  int _initialScrollIndex = 0;
+  double _initialAlignment = 0;
+  int _listEpoch = 0;
+
+  late MushafScript _script = widget.settings.mushafScript;
+  VerseCollection? _resolved;
+  String? _bismillah;
+  bool _loading = true;
+  int _loadGen = 0;
+
+  int get _itemCount {
+    final groups = _resolved?.groups.length ?? 0;
+    return groups + 1;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    widget.settings.addListener(_onSettingsChanged);
+    _reloadForScript(_script);
+  }
 
   @override
   void dispose() {
-    _scroll.dispose();
+    widget.settings.removeListener(_onSettingsChanged);
     super.dispose();
   }
 
-  void _onPinchStarted(Offset _) {
-    if (!_scroll.hasClients) {
-      _pinchScrollFrac = null;
+  void _onSettingsChanged() {
+    final next = widget.settings.mushafScript;
+    if (next == _script && _resolved != null) return;
+    _captureScrollAnchorForScriptSwitch();
+    _script = next;
+    _reloadForScript(next, preserveVisible: true);
+  }
+
+  void _captureScrollAnchorForScriptSwitch() {
+    final top = _topVisibleItemPosition(_positions.itemPositions.value);
+    if (top == null) {
+      _initialScrollIndex = 0;
+      _initialAlignment = 0;
       return;
     }
-    final pos = _scroll.position;
-    final max = pos.maxScrollExtent;
-    _pinchScrollFrac = max <= 0 ? 0.0 : (pos.pixels / max).clamp(0.0, 1.0);
+    _initialScrollIndex = top.index;
+    _initialAlignment = top.itemLeadingEdge.clamp(0.0, 0.85);
+  }
+
+  Future<void> _reloadForScript(
+    MushafScript script, {
+    bool preserveVisible = false,
+  }) async {
+    final gen = ++_loadGen;
+    setState(() => _loading = true);
+    final resolved =
+        await VerseCollectionRepository.forScript(widget.collection, script);
+    final repo = QuranDataRepository.forScript(script);
+    if (repo.bismillah == null) {
+      await repo.loadWindow(
+        const AyahWindow(start: AyahRef.first, end: AyahRef(1, 1)),
+      );
+    }
+    final bismillah = repo.bismillah?.words.map((w) => w.text).join(' ') ??
+        QuranMetadata.bismillahTextOrEmpty(script: script);
+    if (!mounted || gen != _loadGen) return;
+    setState(() {
+      _resolved = resolved;
+      _bismillah = bismillah;
+      if (preserveVisible) _listEpoch++;
+      _loading = false;
+    });
+  }
+
+  void _onPinchStarted(Offset localFocal) {
+    final box = _pinchKey.currentContext?.findRenderObject() as RenderBox?;
+    final height = box?.size.height ?? 1.0;
+    final frac = (localFocal.dy / height).clamp(0.0, 1.0);
+    final positions = _positions.itemPositions.value;
+
+    ItemPosition? hit;
+    for (final position in positions) {
+      if (position.itemLeadingEdge <= frac &&
+          position.itemTrailingEdge > frac) {
+        hit = position;
+        break;
+      }
+    }
+    hit ??= _topVisibleItemPosition(positions);
+    if (hit == null) {
+      _pinchAnchorIndex = null;
+      _pinchAnchorAlignment = null;
+      return;
+    }
+    _pinchAnchorIndex = hit.index;
+    _pinchAnchorAlignment = hit.itemLeadingEdge.clamp(0.0, 0.9);
+  }
+
+  ItemPosition? _topVisibleItemPosition(Iterable<ItemPosition> positions) {
+    ItemPosition? top;
+    for (final position in positions) {
+      if (position.itemTrailingEdge <= 0) continue;
+      if (position.itemLeadingEdge >= 1) continue;
+      if (top == null || position.itemLeadingEdge < top.itemLeadingEdge) {
+        top = position;
+      }
+    }
+    return top;
   }
 
   void _onPinchFontSize(double size) {
     widget.settings.setFontSize(size);
-    _restoreScrollFraction();
+    _restorePinchAnchor();
   }
 
   void _onPinchEnded() {
-    _restoreScrollFraction();
-    _pinchScrollFrac = null;
+    _restorePinchAnchor();
+    _pinchAnchorIndex = null;
+    _pinchAnchorAlignment = null;
   }
 
-  void _restoreScrollFraction() {
-    final frac = _pinchScrollFrac;
-    if (frac == null) return;
+  void _restorePinchAnchor() {
+    final index = _pinchAnchorIndex;
+    final alignment = _pinchAnchorAlignment;
+    if (index == null || alignment == null) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_scroll.hasClients) return;
-      final max = _scroll.position.maxScrollExtent;
-      _scroll.jumpTo((frac * max).clamp(0.0, max));
+      if (!mounted || !_itemScroll.isAttached) return;
+      if (index < 0 || index >= _itemCount) return;
+      _itemScroll.jumpTo(index: index, alignment: alignment);
     });
   }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final resolved = _resolved;
 
     return ReaderPageScaffold(
       title: widget.collection.title,
@@ -75,51 +177,56 @@ class _VerseCollectionScreenState extends State<VerseCollectionScreen> {
         listenable: widget.settings,
         builder: (context, _) {
           final ink = theme.colorScheme.onSurface;
-          final groups = widget.collection.groups;
-          return FutureBuilder<QuranMetadata>(
-            future: _metaFuture,
-            builder: (context, snap) {
-              final bismillah = snap.hasData
-                  ? snap.data!.bismillahWords.join(' ')
-                  : QuranMetadata.bismillahTextOrEmpty();
-              return MushafPinchZoom(
-                fontSize: widget.settings.fontSize,
-                onPinchStarted: _onPinchStarted,
-                onPinchEnded: _onPinchEnded,
-                onFontSizeChanged: _onPinchFontSize,
-                child: Builder(
-                  builder: (context) {
-                    return ListView.builder(
-                      controller: _scroll,
-                      physics: MushafPinchLock.of(context)
-                          ? const NeverScrollableScrollPhysics()
-                          : null,
-                      padding: const EdgeInsets.fromLTRB(0, 8, 0, 32),
-                      itemCount: groups.length + 1,
-                      itemBuilder: (context, index) {
-                        if (index == 0) {
-                          return RecitationBismillah(
-                            text: bismillah,
-                            fontSize: widget.settings.fontSize,
-                            inkColor: ink,
-                          );
-                        }
-                        final group = groups[index - 1];
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          child: _VerseGroupCard(
-                            group: group,
-                            fontSize: widget.settings.fontSize,
-                            tajweedEnabled: widget.settings.tajweedEnabled,
-                            inkColor: ink,
-                          ),
-                        );
-                      },
+          if (_loading || resolved == null) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          final groups = resolved.groups;
+          return MushafPinchZoom(
+            key: _pinchKey,
+            fontSize: widget.settings.fontSize,
+            onPinchStarted: _onPinchStarted,
+            onPinchEnded: _onPinchEnded,
+            onFontSizeChanged: _onPinchFontSize,
+            child: Builder(
+              builder: (context) {
+                return ScrollablePositionedList.builder(
+                  key: ValueKey<String>(
+                    'collection-${_script.name}-$_listEpoch',
+                  ),
+                  itemScrollController: _itemScroll,
+                  itemPositionsListener: _positions,
+                  initialScrollIndex: _initialScrollIndex.clamp(
+                    0,
+                    groups.isEmpty ? 0 : groups.length,
+                  ),
+                  initialAlignment: _initialAlignment,
+                  physics: MushafPinchLock.of(context)
+                      ? const NeverScrollableScrollPhysics()
+                      : null,
+                  padding: const EdgeInsets.fromLTRB(0, 8, 0, 32),
+                  itemCount: groups.length + 1,
+                  itemBuilder: (context, index) {
+                    if (index == 0) {
+                      return RecitationBismillah(
+                        text: _bismillah ?? '',
+                        fontSize: widget.settings.fontSize,
+                        inkColor: ink,
+                      );
+                    }
+                    final group = groups[index - 1];
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: _VerseGroupCard(
+                        group: group,
+                        fontSize: widget.settings.fontSize,
+                        tajweedEnabled: widget.settings.tajweedEnabled,
+                        inkColor: ink,
+                      ),
                     );
                   },
-                ),
-              );
-            },
+                );
+              },
+            ),
           );
         },
       ),
@@ -195,6 +302,11 @@ class _VerseGroupCard extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 4),
                 child: QuranAyahWidget(
+                  key: ValueKey<String>(
+                    '${i < refs.length ? refs[i].surah : first.surah}:'
+                    '${i < refs.length ? refs[i].ayah : first.ayah}:'
+                    '${group.verses[i].length}',
+                  ),
                   ayah: QuranAyahChunk(
                     surah: i < refs.length ? refs[i].surah : first.surah,
                     ayah: i < refs.length ? refs[i].ayah : first.ayah,

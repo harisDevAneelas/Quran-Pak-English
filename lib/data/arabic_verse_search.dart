@@ -100,22 +100,19 @@ abstract final class ArabicVerseSearch {
   }
 
   static bool _isSkippableMark(int unit) {
-    // Tatweel
     if (unit == 0x0640) return true;
-    // Harakat / Quranic annotation marks commonly in mushaf text
     if (unit >= 0x064B && unit <= 0x065F) return true;
-    if (unit == 0x0670) return true; // superscript alef
+    if (unit == 0x0670) return true;
     if (unit >= 0x06D6 && unit <= 0x06ED) return true;
     if (unit >= 0x08D3 && unit <= 0x08FF) return true;
     return false;
   }
 
   static int _foldLetter(int unit) {
-    // Common alef / ya / ta marbuta folds for looser typing.
     return switch (unit) {
-      0x0622 || 0x0623 || 0x0625 || 0x0671 => 0x0627, // آ أ إ ٱ → ا
-      0x0649 => 0x064A, // ى → ي
-      0x0629 => 0x0647, // ة → ه
+      0x0622 || 0x0623 || 0x0625 || 0x0671 => 0x0627,
+      0x0649 => 0x064A,
+      0x0629 => 0x0647,
       _ => unit,
     };
   }

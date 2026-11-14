@@ -4,7 +4,18 @@
 /// UTF-16 code units, half-open `[start, end)`.
 library;
 
-enum TajweedColorName { none, green, red, blue }
+enum TajweedColorName {
+  none,
+  green,
+  red,
+  blue,
+  cyan,
+  purple,
+  gray,
+  gold,
+  orange,
+  maroon,
+}
 
 /// Precomputed UTF-16 half-open color range inside one word.
 class QuranWordColorRange {

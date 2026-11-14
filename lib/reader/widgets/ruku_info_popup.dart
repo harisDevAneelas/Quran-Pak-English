@@ -17,7 +17,6 @@ Future<void> showRukuInfoPopup({
     barrierDismissible: true,
     barrierLabel: MaterialLocalizations.of(context).modalBarrierDismissLabel,
     barrierColor: Colors.transparent,
-    // Instant blur — fading BackdropFilter looks delayed.
     transitionDuration: Duration.zero,
     pageBuilder: (context, animation, secondaryAnimation) {
       return _RukuInfoPopup(mark: mark);
@@ -105,7 +104,6 @@ class _RukuInfoPopup extends StatelessWidget {
                       borderRadius: BorderRadius.circular(18),
                       child: Stack(
                         children: [
-                          // Warm wash across the whole top of the card.
                           Positioned(
                             left: 0,
                             right: 0,

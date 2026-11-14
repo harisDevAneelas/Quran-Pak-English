@@ -6,6 +6,7 @@ import '../../core/app_theme.dart';
 import '../../data/quran_metadata.dart';
 import '../app_notification_scheduler.dart';
 import '../daily_plan.dart';
+import '../learned_notify_store.dart';
 import '../notification_route.dart';
 import '../profile.dart';
 import '../profile_manager.dart';
@@ -21,12 +22,14 @@ class DailyPlanSetupScreen extends StatefulWidget {
     required this.dailyPlanStore,
     required this.profiles,
     required this.editProfileId,
+    required this.learnedNotifyStore,
   });
 
   final DailyPlanKind kind;
   final DailyPlanStore dailyPlanStore;
   final ProfileManager profiles;
   final String editProfileId;
+  final LearnedNotifyStore learnedNotifyStore;
 
   @override
   State<DailyPlanSetupScreen> createState() => _DailyPlanSetupScreenState();
@@ -81,7 +84,6 @@ class _DailyPlanSetupScreenState extends State<DailyPlanSetupScreen> {
   Future<void> _createProfileForEdit() async {
     final name = await _promptNewProfileName('');
     if (name == null || name.trim().isEmpty || !mounted) return;
-    // Creates only — does not switch the app's active profile.
     final profile = await widget.profiles.create(name.trim());
     if (!mounted) return;
     await _onProfileSelected(profile);
@@ -189,6 +191,7 @@ class _DailyPlanSetupScreenState extends State<DailyPlanSetupScreen> {
     await _store.save(plan);
     final allowed = await AppNotificationScheduler.instance.rescheduleAll(
       plan: plan,
+      learnedNotifyStore: widget.learnedNotifyStore,
       confirm: _reminder,
     );
     if (!mounted) return;
